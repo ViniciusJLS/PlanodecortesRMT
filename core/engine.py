@@ -1,0 +1,284 @@
+"""Regras de planejamento. Sem dependência da interface Streamlit."""
+from collections import Counter, defaultdict
+from decimal import Decimal, ROUND_CEILING, ROUND_FLOOR
+import hashlib
+import json
+import math
+import time
+
+
+def dec(value):
+    return Decimal(str(value))
+
+
+def fingerprint(project):
+    data = {k: project.get(k) for k in ('trechos', 'bobinas', 'criterios')}
+    return hashlib.sha256(json.dumps(data, sort_keys=True, ensure_ascii=False).encode()).hexdigest()
+
+
+def base(reel):
+    real = reel.get('real')
+    return dec(real) if real is not None else dec(reel['nominal']) * Decimal('0.97')
+
+
+def available(reel):
+    return base(reel) - dec(reel.get('utilizado', 0))
+
+
+def key(t):
+    return tuple(str(t.get(k, '')) for k in ('parque', 'circuito', 'nivel', 'fase', 'condutor', 'tipo', 'rota'))
+
+
+def raw_length(rows):
+    # A folga pode variar entre trechos; arredondamento acontece UMA vez por corte.
+    return sum((dec(r['linear']) * (1 + dec(r['folga'])) + dec(r.get('reserva', 0)) for r in rows), Decimal(0))
+
+
+def length(rows):
+    return int(raw_length(rows).to_integral_value(rounding=ROUND_CEILING))
+
+
+def segments(rows):
+    groups = defaultdict(list)
+    for t in rows:
+        groups[key(t)].append(t)
+    result = []
+    for k, group in sorted(groups.items()):
+        chain = []
+        for t in sorted(group, key=lambda r: r['ordem']):
+            if chain and chain[-1]['para'] != t['de']:
+                result.append(chain)
+                chain = []
+            chain.append(t)
+        if chain:
+            result.append(chain)
+    return result
+
+
+def input_errors(project):
+    errors = []
+    rows, reels = project['trechos'], project['bobinas']
+    for label, items in [('trecho', rows), ('bobina', reels)]:
+        ids = [str(t.get('id', '')) for t in items]
+        duplicates = [ident for ident, count in Counter(ids).items() if count > 1]
+        if any(v in ('', 'None') for v in ids) or duplicates:
+            errors.append(f'Identificações vazias ou repetidas em {label}: ' + ', '.join(duplicates[:20]))
+    for r in reels:
+        try:
+            if not str(r.get('condutor', '')).strip():
+                raise ValueError('condutor ausente')
+            numbers = [dec(r['nominal']), dec(r.get('utilizado', 0))]
+            if r.get('real') is not None:
+                numbers.append(dec(r['real']))
+            if any(not n.is_finite() or n < 0 for n in numbers):
+                raise ValueError('metragem inválida')
+            if available(r) < 0:
+                raise ValueError('consumo anterior maior que a base disponível')
+        except (ValueError, KeyError, ArithmeticError) as exc:
+            errors.append(f"Bobina {r.get('id')}: {exc}.")
+    orders = set()
+    for t in rows:
+        try:
+            for field in ('parque', 'circuito', 'fase', 'condutor', 'de', 'para'):
+                if t.get(field) is None or not str(t.get(field, '')).strip():
+                    raise ValueError(f'{field} ausente')
+            if t['de'] == t['para']:
+                raise ValueError('início igual ao fim')
+            for field in ('linear', 'folga', 'reserva', 'ordem'):
+                v = dec(t.get(field, 0))
+                if not v.is_finite() or v < 0:
+                    raise ValueError(f'{field} inválido')
+            if dec(t['linear']) <= 0:
+                raise ValueError('distância linear deve ser positiva')
+            if dec(t['folga']) > 1:
+                raise ValueError('folga deve estar em fração: 0,05 representa 5%')
+            if t.get('corte_fim') not in ('PERMITIDO', 'PROIBIDO', 'OBRIGATORIO'):
+                raise ValueError('critério de corte inválido')
+            order = (key(t), t['ordem'])
+            if order in orders:
+                raise ValueError('ordem repetida na mesma rota/fase/nível')
+            orders.add(order)
+        except (ValueError, KeyError, ArithmeticError) as exc:
+            errors.append(f"Trecho {t.get('id')}: {exc}.")
+    if not rows:
+        errors.append('Cadastre ao menos um trecho.')
+    if not reels:
+        errors.append('Cadastre ao menos uma bobina.')
+    if not errors:
+        for chain in segments(rows):
+            if chain[-1]['corte_fim'] == 'PROIBIDO':
+                errors.append(f"{chain[-1]['id']}: a rota termina em um ponto com corte proibido.")
+    return errors
+
+
+def make_cut(rows, reel_id, number):
+    return dict(id=f'C{number:04d}', bobina=reel_id, parque=rows[0]['parque'],
+                circuito=rows[0]['circuito'], nivel=rows[0]['nivel'], fase=rows[0]['fase'],
+                condutor=rows[0]['condutor'], tipo=rows[0]['tipo'], de=rows[0]['de'],
+                para=rows[-1]['para'], linear=float(sum((dec(r['linear']) for r in rows), Decimal(0))),
+                acrescimo=float(raw_length(rows) - sum((dec(r['linear']) for r in rows), Decimal(0))),
+                projeto=length(rows), trechos=[r['id'] for r in rows])
+
+
+def validate(project, cuts):
+    """Auditoria independente de cobertura, continuidade, critérios e balanço."""
+    errors = input_errors(project)
+    rows = {r['id']: r for r in project['trechos']}
+    reels = {r['id']: r for r in project['bobinas']}
+    coverage, consumption = Counter(), Counter()
+    for c in cuts:
+        ids = c.get('trechos', [])
+        coverage.update(ids)
+        if not ids or any(i not in rows for i in ids) or c['bobina'] not in reels:
+            errors.append(f"{c['id']}: referência inválida.")
+            continue
+        rs = [rows[i] for i in ids]
+        reel = reels[c['bobina']]
+        if any(key(r) != key(rs[0]) for r in rs):
+            errors.append(f"{c['id']}: mistura de rotas, circuitos, fases ou condutores.")
+        for a, b in zip(rs, rs[1:]):
+            if a['para'] != b['de'] or a['ordem'] >= b['ordem'] or a['corte_fim'] == 'OBRIGATORIO':
+                errors.append(f"{c['id']}: continuidade ou corte obrigatório violado.")
+        if rs[-1]['corte_fim'] == 'PROIBIDO':
+            errors.append(f"{c['id']}: término em corte proibido.")
+        if any(r.get('fixa') and r['fixa'] != reel['id'] for r in rs):
+            errors.append(f"{c['id']}: bobina fixada não respeitada.")
+        if reel['condutor'] != rs[0]['condutor'] or reel.get('tipo') != rs[0]['tipo']:
+            errors.append(f"{c['id']}: bobina incompatível com o cabo.")
+        if c['projeto'] != length(rs) or abs(c['linear'] - sum(float(r['linear']) for r in rs)) > 1e-6:
+            errors.append(f"{c['id']}: metragem incorreta.")
+        if c['de'] != rs[0]['de'] or c['para'] != rs[-1]['para']:
+            errors.append(f"{c['id']}: limites incorretos.")
+        consumption[c['bobina']] += c['projeto']
+    if len({c['id'] for c in cuts}) != len(cuts):
+        errors.append('Identificação de corte duplicada.')
+    for ident in rows:
+        if coverage[ident] != 1:
+            errors.append(f'{ident}: cobertura {coverage[ident]} (esperado: 1).')
+    for ident, used in consumption.items():
+        if dec(used) > available(reels[ident]):
+            errors.append(f'{ident}: consumo planejado excede o saldo em {dec(used) - available(reels[ident])} m.')
+    return list(dict.fromkeys(errors))
+
+
+def optimize(project, timeout=30, mode='global'):
+    """Candidatos de cortes contínuos + alocação global CP-SAT.
+
+    Atendimento integral é obrigatório. Objetivo ponderado configurável:
+    número de cortes, bobinas abertas e sobras abaixo do limite reutilizável.
+    Não declara impossibilidade quando apenas o limite de tempo foi atingido.
+    """
+    from ortools.sat.python import cp_model
+    errors = input_errors(project)
+    if errors:
+        raise ValueError('\n'.join(errors[:50]))
+    start_time = time.monotonic()
+    reels = project['bobinas']
+    model = cp_model.CpModel()
+    candidates, coverage, by_reel = [], defaultdict(list), defaultdict(list)
+    for chain in segments(project['trechos']):
+        compatible = [(j, b) for j, b in enumerate(reels)
+                      if b['condutor'] == chain[0]['condutor'] and b['tipo'] == chain[0]['tipo'] and available(b) > 0]
+        max_cap = max((available(b) for _, b in compatible), default=Decimal(0))
+        for a in range(len(chain)):
+            if a and chain[a-1]['corte_fim'] == 'PROIBIDO':
+                continue
+            for end in range(a, len(chain)):
+                block = chain[a:end+1]
+                size = length(block)
+                if size > max_cap:
+                    break
+                if chain[end]['corte_fim'] != 'PROIBIDO':
+                    fixed = {r['fixa'] for r in block if r.get('fixa')}
+                    for j, reel in compatible:
+                        if (fixed and fixed != {reel['id']}) or size > available(reel):
+                            continue
+                        x = model.new_bool_var(f'x{len(candidates)}')
+                        candidates.append((x, block, j, size))
+                        for r in block:
+                            coverage[r['id']].append(x)
+                        by_reel[j].append((x, size))
+                        if len(candidates) > 180000:
+                            raise ValueError('Modelo com mais de 180 mil combinações. Planeje por parque/circuito ou fixe alocações já definidas.')
+                if chain[end]['corte_fim'] == 'OBRIGATORIO':
+                    break
+    missing = [r['id'] for r in project['trechos'] if not coverage[r['id']]]
+    if missing:
+        raise ValueError('Sem lançamento viável para: ' + ', '.join(missing[:30]) + '. Verifique estoque, travessias, pontos de corte e bobinas fixadas.')
+    for variables in coverage.values():
+        model.add_exactly_one(variables)
+    opens, losses = [], []
+    threshold = int(project['criterios'].get('sobra_minima', 50)) * 100
+    for j, terms in by_reel.items():
+        cap = int((available(reels[j]) * 100).to_integral_value(rounding=ROUND_FLOOR))
+        used = sum(x * size * 100 for x, size in terms)
+        opened = model.new_bool_var(f'open{j}')
+        model.add(used <= cap * opened)
+        model.add(sum(x for x, _ in terms) >= opened)
+        opens.append(opened)
+        if threshold > 0:
+            remainder = model.new_int_var(0, cap, f'remainder{j}')
+            model.add(remainder == cap * opened - used)
+            tiny = model.new_bool_var(f'tiny{j}')
+            model.add(remainder < threshold).only_enforce_if(tiny)
+            model.add(remainder >= threshold).only_enforce_if(tiny.Not())
+            loss = model.new_int_var(0, cap, f'loss{j}')
+            model.add(loss == remainder).only_enforce_if(tiny)
+            model.add(loss == 0).only_enforce_if(tiny.Not())
+            losses.append(loss)
+    criteria = project['criterios']
+    model.minimize(int(criteria.get('peso_cortes', 1000)) * 100 * sum(x for x, *_ in candidates)
+                   + int(criteria.get('peso_bobinas', 100)) * 100 * sum(opens)
+                   + int(criteria.get('peso_perda', 1)) * sum(losses))
+    solver = cp_model.CpSolver()
+    solver.parameters.max_time_in_seconds = max(1, timeout - (time.monotonic() - start_time))
+    solver.parameters.num_search_workers = 4
+    if mode == 'rapido':
+        solver.parameters.stop_after_first_solution = True
+    status = solver.solve(model)
+    if status not in (cp_model.OPTIMAL, cp_model.FEASIBLE):
+        if status == cp_model.INFEASIBLE:
+            raise ValueError('Não existe alocação integral com este estoque e estes critérios. Revise comprimentos, reservas e restrições.')
+        raise ValueError('Nenhuma solução integral encontrada no tempo disponível. Aumente o tempo ou reduza o escopo; isso não comprova falta de cabo.')
+    cuts = [make_cut(rows, reels[j]['id'], i + 1) for i, (x, rows, j, _) in
+            enumerate(c for c in candidates if solver.value(c[0]))]
+    errors = validate(project, cuts)
+    if errors:
+        raise ValueError('Auditoria reprovada:\n' + '\n'.join(errors[:30]))
+    return dict(cortes=cuts, fingerprint=fingerprint(project),
+                status='Ótimo para os pesos configurados' if status == cp_model.OPTIMAL else 'Solução viável; ótimo não comprovado',
+                segundos=round(time.monotonic() - start_time, 2), combinacoes=len(candidates),
+                objetivo=solver.objective_value, limite=solver.best_objective_bound)
+
+
+def consolidate_existing(project):
+    cuts = []
+    for chain in segments(project['trechos']):
+        current = []
+        for t in chain:
+            if not t.get('bobina_original'):
+                raise ValueError(f"{t['id']}: bobina original não informada.")
+            if current and (current[-1]['bobina_original'] != t['bobina_original'] or current[-1]['corte_fim'] == 'OBRIGATORIO'):
+                cuts.append(make_cut(current, current[0]['bobina_original'], len(cuts)+1))
+                current = []
+            current.append(t)
+        if current:
+            cuts.append(make_cut(current, current[0]['bobina_original'], len(cuts)+1))
+    errors = validate(project, cuts)
+    if errors:
+        raise ValueError('\n'.join(errors[:50]))
+    return dict(cortes=cuts, fingerprint=fingerprint(project), status='Alocação importada e validada', segundos=0)
+
+
+def stock(project, cuts):
+    used = Counter()
+    for c in cuts:
+        used[c['bobina']] += c['projeto']
+    result = []
+    for reel in project['bobinas']:
+        remaining = available(reel) - dec(used[reel['id']])
+        result.append(dict(bobina=reel['id'], condutor=reel['condutor'], nominal=reel['nominal'], real=reel.get('real'),
+                           base=float(base(reel)), anterior=reel.get('utilizado', 0), reservado=used[reel['id']],
+                           saldo=float(remaining), classificacao='Não utilizada neste plano' if not used[reel['id']] else
+                           ('Esgotada' if remaining == 0 else 'Sobra reutilizável' if remaining >= dec(project['criterios']['sobra_minima']) else 'Sobra abaixo do limite')))
+    return result
