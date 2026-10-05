@@ -7,6 +7,7 @@ import pandas as pd
 import streamlit as st
 from core import engine, importer, project as projects
 from core.exporter import export
+from core.inventory import summarize, row_style
 
 st.set_page_config(page_title='RMT · Plano de corte', page_icon='⚡', layout='wide')
 st.markdown('''<style>
@@ -64,7 +65,7 @@ with st.sidebar:
     st.markdown('<div class="brand">⚡ RMT</div>', unsafe_allow_html=True)
     st.caption('PLANEJAMENTO DE CABOS')
     st.divider()
-    page = st.radio('Área de trabalho', ['Visão geral','Projeto e importação','Traçado','Bobinas','Critérios de corte','Plano e entregáveis'], label_visibility='collapsed')
+    page = st.radio('Área de trabalho', ['Visão geral','Projeto e importação','Traçado','Resumo de bobinas','Bobinas','Critérios de corte','Plano e entregáveis'], label_visibility='collapsed')
     st.divider()
     st.markdown(f"**{p['nome']}**")
     st.caption(f"Revisão {p['revisao']} · {len(p['trechos'])} trechos")
@@ -143,7 +144,7 @@ elif page == 'Projeto e importação':
                     with st.spinner('Lendo cabeçalhos e metragens…'):
                         rows,reels,warnings = importer.import_control(content,selected)
                     p.update(trechos=rows,bobinas=reels,avisos=warnings,criterios_confirmados=False)
-                    p['nome'] = 'Dom Inocêncio IV · ' + ', '.join(selected)
+                    p['nome'] = 'Plano RMT · ' + ', '.join(selected)
                     commit()
                     st.success(f'{len(rows)} trechos e {len(reels)} bobinas importados.')
                     st.rerun()
@@ -222,19 +223,68 @@ elif page == 'Traçado':
     if st.button('Conferir dados do projeto'):
         show_issues(engine.input_errors(p))
 
+elif page == 'Resumo de bobinas':
+    st.caption('Distribuição das bobinas entre os parques do controle importado e do projeto aberto. Todas as metragens estão em metros.')
+    summary, parks, current = summarize(p)
+    if not summary:
+        st.info('Importe um controle Excel em Projeto e importação ou cadastre bobinas para visualizar o resumo.')
+    else:
+        if current:
+            st.info('Visão atual: consumo dos outros parques + lançamentos do plano válido. Nos parques replanejados, o plano substitui os valores importados.')
+        elif any('consumo_importado_parques' in r for r in p['bobinas']):
+            st.info('Referência importada: os consumos por parque vêm da aba RESUMO_BOBINAS. Ao gerar um plano válido, os parques replanejados serão atualizados nesta visão.')
+        else:
+            st.info('Sem plano atual e sem distribuição importada. O resumo mostra o consumo anterior cadastrado; a distribuição por parque aparecerá após a importação ou geração do plano.')
+        if any('consumo_importado_parques' not in r for r in p['bobinas']):
+            st.caption('Cadastros antigos ou manuais podem não ter histórico por parque. Esse consumo aparece em “Ajuste / sem parque”; reimporte o controle para obter a distribuição original.')
+        df_summary = pd.DataFrame(summary)
+        c1,c2,c3 = st.columns([2,2,1])
+        query = c1.text_input('Buscar bobina ou condutor')
+        conductor = c2.selectbox('Condutor',['Todos']+sorted(df_summary['Condutor'].unique().tolist()))
+        exceeded = c3.checkbox('Somente excedidas')
+        view = df_summary.copy()
+        if query:
+            view = view[view['Bobina'].str.contains(query,case=False,regex=False,na=False)|view['Condutor'].str.contains(query,case=False,regex=False,na=False)]
+        if conductor != 'Todos':
+            view = view[view['Condutor']==conductor]
+        if exceeded:
+            view = view[view['Saldo disponível [m]']<0]
+        a,b,c,d = st.columns(4)
+        a.metric('Bobinas na seleção',len(view))
+        b.metric('Total utilizado',fmt(view['Total utilizado [m]'].sum())+' m')
+        c.metric('Saldo líquido',fmt(view['Saldo disponível [m]'].sum())+' m')
+        d.metric('Bobinas excedidas',int((view['Saldo disponível [m]']<0).sum()))
+        if view['Situação'].str.contains('pendentes|duplicado',case=False,regex=True).any():
+            st.warning('Há dados pendentes ou IDs duplicados. Valores desconhecidos não entram nos totais; registros duplicados permanecem visíveis para conferência.')
+        numeric = parks+['Ajuste / sem parque [m]','Total utilizado [m]','Saldo disponível [m]','Base da bobina [m]','Nominal [m]','Real confirmada [m]']
+        st.dataframe(view.style.apply(row_style,axis=1).format({k:'{:,.2f}' for k in numeric},na_rep='—',decimal=',',thousands='.'),
+                     hide_index=True,width='stretch',height=500)
+        st.caption('Vermelho: total utilizado maior que a base da bobina (saldo negativo). Base = metragem real, quando informada; caso contrário, nominal × 0,97. “Total” representa comprimento, não preço.')
+        st.subheader('Resumo por condutor')
+        grouped = view.groupby(['Condutor','Tipo'],dropna=False)[['Base da bobina [m]','Total utilizado [m]','Saldo disponível [m]']].sum(min_count=1).reset_index()
+        st.dataframe(grouped.style.format({k:'{:,.2f}' for k in ['Base da bobina [m]','Total utilizado [m]','Saldo disponível [m]']},na_rep='—',decimal=',',thousands='.'),hide_index=True,width='stretch')
+        st.caption('Edite o comprimento nominal, a metragem real e o consumo anterior na página Bobinas. O resumo acompanha as alterações salvas.')
+
 elif page == 'Bobinas':
     st.caption('Metragem real preenchida substitui a redução contratual de 3%. Deixe o campo vazio quando a metragem ainda não estiver confirmada.')
-    fields = ['id','condutor','tipo','nominal','real','utilizado']
+    fields = ['romaneio','id','condutor','tipo','nominal','real','utilizado']
     df = pd.DataFrame(p['bobinas'],columns=fields)
+    df['_registro'] = list(range(len(df)))
     edited = st.data_editor(df, num_rows='dynamic',hide_index=True,width='stretch',height=450,
-                           key=f'bobinas_{st.session_state.edit_version}',column_config={
+                           key=f'bobinas_{st.session_state.edit_version}',disabled=['_registro'],column_config={
+                               '_registro':None,
                                'id':st.column_config.TextColumn('Bobina',required=True),
                                'nominal':st.column_config.NumberColumn('Nominal [m]',min_value=0),
                                'real':st.column_config.NumberColumn('Real confirmada [m]',min_value=0),
                                'utilizado':st.column_config.NumberColumn('Consumo anterior [m]',min_value=0),
                                'tipo':st.column_config.SelectboxColumn('Tipo',options=['AÉREO','SUBTERRÂNEO'])})
     if st.button('Salvar estoque e recalcular saldos',type='primary'):
-        p['bobinas'] = records(edited)
+        updated = []
+        for record in records(edited):
+            index = record.pop('_registro',None)
+            previous = p['bobinas'][int(index)] if index is not None and 0 <= int(index) < len(p['bobinas']) else {}
+            updated.append({**previous, **record})
+        p['bobinas'] = updated
         old = p.get('plano')
         errors = engine.validate(p,old['cortes']) if old else engine.input_errors(p)
         if old and not errors:
