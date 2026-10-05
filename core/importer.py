@@ -72,10 +72,15 @@ def import_control(content, selected):
             continue
         past = 0.0
         unknown = False
+        park_usage = {}
         # Somente parques fora do escopo permanecem como consumo anterior.
         for h, j in headers.items():
-            if re.fullmatch(r'RSA\d+', h.replace('-', '').replace(' ', '')) and h.replace('-', '').replace(' ', '') not in excluded:
+            park_key = h.replace('-', '').replace(' ', '')
+            if re.fullmatch(r'RSA\d+', park_key):
                 val = number(r[j])
+                park_usage[park_key] = val if r[j] is not None else 0.0
+                if park_key in excluded:
+                    continue
                 if val is None and r[j] is not None:
                     unknown = True
                 past += val or 0
@@ -91,7 +96,10 @@ def import_control(content, selected):
             warnings.append(f'{ident}: consumo externo com erro Excel; importação bloqueada até corrigir a origem.')
             past = -1
         reels.append(dict(id=ident, condutor=cable, tipo=text(r[type_col]), nominal=nominal,
-                          real=real, utilizado=past, origem=f'RESUMO_BOBINAS!{index+1}'))
+                          real=real, utilizado=past, origem=f'RESUMO_BOBINAS!{index+1}',
+                          romaneio=text(r[col('ROMANEIO')]) if col('ROMANEIO') is not None else '',
+                          consumo_importado_parques=park_usage,
+                          parques_replanejados=sorted(excluded)))
     count = defaultdict(int)
     for name in selected:
         header = None
