@@ -8,6 +8,7 @@ import streamlit as st
 from core import engine, importer, project as projects
 from core.exporter import export
 from core.inventory import summarize, row_style
+from core.subparks import phase_groups, table_html, natural
 
 st.set_page_config(page_title='RMT · Plano de corte', page_icon='⚡', layout='wide')
 st.markdown('''<style>
@@ -65,7 +66,7 @@ with st.sidebar:
     st.markdown('<div class="brand">⚡ RMT</div>', unsafe_allow_html=True)
     st.caption('PLANEJAMENTO DE CABOS')
     st.divider()
-    page = st.radio('Área de trabalho', ['Visão geral','Projeto e importação','Traçado','Resumo de bobinas','Bobinas','Critérios de corte','Plano e entregáveis'], label_visibility='collapsed')
+    page = st.radio('Área de trabalho', ['Visão geral','Projeto e importação','Subparques','Traçado','Resumo de bobinas','Bobinas','Critérios de corte','Plano e entregáveis'], label_visibility='collapsed')
     st.divider()
     st.markdown(f"**{p['nome']}**")
     st.caption(f"Revisão {p['revisao']} · {len(p['trechos'])} trechos")
@@ -194,6 +195,41 @@ elif page == 'Projeto e importação':
             projects.save(new)
             switch_project(new)
         st.caption('Projetos são salvos em SQLite neste servidor. Em hospedagens com disco temporário, mantenha backups JSON ou configure um volume persistente. Esta versão foi preparada para uso individual.')
+
+elif page == 'Subparques':
+    st.caption('Consulta individual dos trechos de cada subparque, organizada em fases A, B e C.')
+    parks = sorted({r['parque'] for r in p['trechos']},key=natural)
+    if not parks:
+        st.info('Importe os subparques em Projeto e importação ou cadastre seus trechos na página Traçado.')
+    else:
+        park = st.selectbox('Subparque',parks,key='subpark_selection')
+        subset = [r for r in p['trechos'] if r['parque']==park]
+        a,b,c = st.columns(3)
+        circuit = a.selectbox('Circuito',['Todos']+sorted({str(r['circuito']) for r in subset},key=natural))
+        level = b.selectbox('Nível',['Todos']+sorted({str(r['nivel']) for r in subset},key=natural))
+        installation = c.selectbox('Tipo de instalação',['Todos']+sorted({r['tipo'] for r in subset}))
+        groups,warnings,current = phase_groups(p,park,None if circuit=='Todos' else circuit,
+                                              None if level=='Todos' else level,None if installation=='Todos' else installation)
+        if current:
+            st.info('Bobinas do plano atual. A coluna Lançamento permite identificar quais trechos pertencem ao mesmo corte contínuo.')
+        else:
+            st.info('Bobinas da referência importada. Sem plano atual validado, esta consulta não representa uma nova alocação aprovada.')
+        a,b,c = st.columns(3)
+        a.metric('Trechos por circuito e nível',len(groups))
+        a_rows=[r for group in groups for r in group if not r.get('ausente')]
+        b.metric('Registros de fases',len(a_rows))
+        c.metric('Bobinas identificadas',len({r.get('bobina') for r in a_rows if r.get('bobina')}))
+        if warnings:
+            with st.expander(f'Pendências nas fases ({len(warnings)})',expanded=True):
+                for warning in warnings:
+                    st.warning(warning)
+        if groups:
+            st.markdown(table_html(groups),unsafe_allow_html=True)
+        else:
+            st.info('Não há trechos para os filtros selecionados.')
+        st.caption('Cada grupo mantém o mesmo trecho, circuito e nível, na ordem A → B → C. Uma linha dupla separa os grupos. As bobinas podem variar por fase; valores diferentes na origem são preservados.')
+        st.caption('A necessidade por trecho é exibida sem arredondamento. O comprimento de corte continua sendo arredondado apenas após consolidar o lançamento. Fases ausentes são sinalizadas, sem criar consumo fictício.')
+        st.caption('Para editar os registros, use Traçado. Só aparecem aqui os subparques cujos trechos foram importados ou cadastrados no projeto aberto.')
 
 elif page == 'Traçado':
     st.caption('Cada linha representa um condutor entre duas estruturas. A ordem pertence à combinação parque, circuito, nível, fase e rota.')
