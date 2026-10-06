@@ -27,7 +27,8 @@ div.stButton>button[kind="primary"]{background:#087e83;border-color:#087e83}
 </style>''', unsafe_allow_html=True)
 
 if 'project' not in st.session_state:
-    st.session_state.project = projects.demo()
+    saved = projects.saved_projects()
+    st.session_state.project = projects.load(saved[0][0]) if saved else projects.demo()
     st.session_state.edit_version = 0
 
 p = st.session_state.project
@@ -44,9 +45,27 @@ def commit(clear_plan=True):
     st.session_state.edit_version += 1
 
 
-def switch_project(value):
+def activate_work(value):
+    current = st.session_state.project
+    if current['id'] != value['id']:
+        projects.save(current)
+    projects.save(value)
+    # Remove editores, uploads e filtros da obra anterior, mantendo apenas a navegação.
+    for key in list(st.session_state):
+        if key not in ('project', 'edit_version', 'work_area'):
+            del st.session_state[key]
     st.session_state.project = value
     st.session_state.edit_version += 1
+
+
+def choose_work():
+    target = st.session_state.obra_ativa
+    if target != st.session_state.project['id']:
+        activate_work(projects.load(target))
+
+
+def switch_project(value):
+    activate_work(value)
     st.rerun()
 
 
@@ -65,22 +84,57 @@ def show_issues(errors):
 with st.sidebar:
     st.markdown('<div class="brand">⚡ RMT</div>', unsafe_allow_html=True)
     st.caption('PLANEJAMENTO DE CABOS')
+    works = {ident:name for ident,name,_ in projects.saved_projects()}
+    works[p['id']] = p['nome']
+    work_ids = sorted(works, key=lambda ident:(works[ident].casefold(),ident))
+    if st.session_state.get('obra_ativa') != p['id']:
+        st.session_state.obra_ativa = p['id']
+    st.selectbox('Obra ativa', work_ids,
+        format_func=lambda ident:f'{works[ident]} · {ident[:8]}', key='obra_ativa', on_change=choose_work)
+    st.caption('Salve os formulários antes de trocar de obra. Cada obra mantém seus próprios subparques, estoque e plano.')
     st.divider()
-    page = st.radio('Área de trabalho', ['Visão geral','Projeto e importação','Subparques','Traçado','Resumo de bobinas','Bobinas','Critérios de corte','Plano e entregáveis'], label_visibility='collapsed', key='work_area')
+    page = st.radio('Área de trabalho', ['Visão geral','Obras','Projeto e importação','Subparques','Traçado','Resumo de bobinas','Bobinas','Critérios de corte','Plano e entregáveis'], label_visibility='collapsed', key='work_area')
     st.divider()
     st.markdown(f"**{p['nome']}**")
     st.caption(f"Revisão {p['revisao']} · {len(p['trechos'])} trechos")
-    if st.button('Salvar projeto', width='stretch'):
+    if st.button('Salvar obra', width='stretch'):
         projects.save(p)
         st.toast('Projeto salvo neste servidor.')
-    st.download_button('Baixar backup do projeto', json.dumps(p, ensure_ascii=False, indent=2),
-                       file_name='projeto_rmt.json', mime='application/json', width='stretch')
+    st.download_button('Baixar backup da obra', json.dumps(p, ensure_ascii=False, indent=2),
+                       file_name=f"obra_rmt_{p['id'][:8]}.json", mime='application/json', width='stretch')
     st.caption('Os planos reservam metragem. O consumo executado é registrado separadamente no cadastro das bobinas.')
 
 st.markdown('<div class="eyebrow">ENGENHARIA · REDE DE MÉDIA TENSÃO</div>', unsafe_allow_html=True)
 st.title(page)
+st.caption(f"Obra ativa: {p['nome']}")
 
-if page == 'Visão geral':
+if page == 'Obras':
+    st.write('Cadastre a obra e depois seus subparques. Todas as páginas trabalham exclusivamente com a obra selecionada na barra lateral.')
+    with st.form('create_work'):
+        a,b = st.columns([2,1])
+        work_name = a.text_input('Nome da obra', placeholder='Ex.: Dom Inocêncio Sul')
+        work_code = b.text_input('Código da obra / documento', value='PLANO-RMT')
+        if st.form_submit_button('Cadastrar e abrir obra', type='primary'):
+            try:
+                created = projects.create_work(work_name, work_code)
+                switch_project(created)
+            except ValueError as exc:
+                st.error(str(exc))
+    st.subheader('Obras cadastradas')
+    catalog = []
+    for ident,name,updated in projects.saved_projects():
+        work = p if ident == p['id'] else projects.load(ident)
+        subparks = set(work.get('subparques',[])) | {r['parque'] for r in work['trechos']}
+        catalog.append({'Obra':work['nome'],'Identificação':ident[:8], 'Subparques':len(subparks),
+                        'Registros de fase':len(work['trechos']), 'Bobinas':len(work['bobinas']),
+                        'Atualizada':updated[:16], 'Ativa':ident==p['id']})
+    if catalog:
+        st.dataframe(pd.DataFrame(catalog), hide_index=True, width='stretch')
+    else:
+        st.info('Cadastre a primeira obra. A demonstração atual só entra no cadastro quando for salva ou ao trocar de obra.')
+    st.caption('Os projetos salvos anteriormente já aparecem como obras, preservando os dados. Obras podem ter subparques e bobinas com os mesmos nomes; cada cadastro fica isolado pelo identificador da obra.')
+
+elif page == 'Visão geral':
     st.caption('Do traçado ao lançamento contínuo, com rastreabilidade de cada bobina.')
     if p['nome'] == 'Parque demonstração':
         st.info('Você está no exemplo demonstrativo. Importe seu controle em “Projeto e importação” para trabalhar com dados reais.')
@@ -122,7 +176,7 @@ if page == 'Visão geral':
 elif page == 'Projeto e importação':
     with st.form('metadata'):
         a,b,c = st.columns([2,1,1])
-        name = a.text_input('Nome do projeto',p['nome'])
+        name = a.text_input('Nome da obra',p['nome'])
         code = b.text_input('Código do documento',p['codigo'])
         revision = c.text_input('Revisão',p['revisao'])
         if st.form_submit_button('Salvar identificação', type='primary'):
@@ -146,7 +200,8 @@ elif page == 'Projeto e importação':
                         rows,reels,warnings = importer.import_control(content,selected)
                     p.update(trechos=rows,bobinas=reels,avisos=warnings,criterios_confirmados=False,
                              subparques=selected,referencias_subparques={},arquivos_referencia={})
-                    p['nome'] = 'Plano RMT · ' + ', '.join(selected)
+                    if p['nome'] in ('Parque demonstração','Novo projeto','Nova obra'):
+                        p['nome'] = 'Obra · ' + ', '.join(selected)
                     commit()
                     st.success(f'{len(rows)} trechos e {len(reels)} bobinas importados.')
                     st.rerun()
@@ -178,21 +233,21 @@ elif page == 'Projeto e importação':
     with tabs[2]:
         saved = projects.saved_projects()
         if saved:
-            choice = st.selectbox('Projetos neste servidor',saved,format_func=lambda x:f'{x[1]} · {x[2][:16]}')
-            if st.button('Abrir projeto salvo'):
+            choice = st.selectbox('Obras neste servidor',saved,format_func=lambda x:f'{x[1]} · {x[0][:8]}')
+            if st.button('Abrir obra salva'):
                 switch_project(projects.load(choice[0]))
         backup = st.file_uploader('Restaurar backup JSON',type='json')
-        if backup and st.button('Restaurar como novo projeto'):
+        if backup and st.button('Restaurar como nova obra'):
             try:
                 switch_project(projects.restore(backup.getvalue()))
             except Exception as exc:
                 st.error(str(exc))
         a,b,c = st.columns(3)
-        if a.button('Novo projeto vazio'):
+        if a.button('Nova obra vazia'):
             switch_project(projects.new_project())
         if b.button('Abrir demonstração'):
             switch_project(projects.demo())
-        if c.button('Duplicar projeto atual'):
+        if c.button('Duplicar obra atual'):
             new = copy.deepcopy(p)
             new['id'] = str(uuid.uuid4())
             new['nome'] += ' · cópia'
