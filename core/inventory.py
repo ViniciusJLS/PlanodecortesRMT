@@ -3,6 +3,7 @@ from collections import Counter, defaultdict
 from decimal import Decimal, InvalidOperation
 import re
 from .engine import base, dec, fingerprint
+from .subparks import launch_usage
 
 
 def park_id(value):
@@ -23,12 +24,19 @@ def summarize(project):
     plan = project.get('plano')
     current = bool(plan and plan.get('fingerprint') == fingerprint(project))
     usage = defaultdict(lambda: defaultdict(Decimal))
+    active_parks = {park_id(t['parque']) for t in project.get('trechos', [])}
     if current:
         for c in plan['cortes']:
             usage[c['bobina']][park_id(c['parque'])] += dec(c['projeto'])
+    else:
+        for reel, values in launch_usage(project).items():
+            for park, value in values.items():
+                key = park_id(park)
+                usage[reel][key] = (usage[reel][key] + value) if value is not None and usage[reel][key] is not None else None
     parks = {park_id(t['parque']) for t in project.get('trechos', [])}
     for reel in project['bobinas']:
         parks.update(park_id(k) for k in reel.get('consumo_importado_parques', {}))
+        parks.update(park_id(k) for k in reel.get('parques_replanejados', []))
     parks = sorted(parks)
     ids = Counter(r['id'] for r in project['bobinas'])
     rows = []
@@ -36,14 +44,12 @@ def summarize(project):
         imported = {park_id(k): amount(v) for k,v in reel.get('consumo_importado_parques',{}).items()}
         scope = {park_id(k) for k in reel.get('parques_replanejados',[])}
         external = {k:v for k,v in imported.items() if k not in scope}
-        values = dict(external)
-        if current:
-            for k in scope:
-                values[k] = Decimal(0)
-            for k,v in usage[reel['id']].items():
-                values[k] = (values.get(k, Decimal(0)) + v) if values.get(k, 0) is not None else None
-        else:
-            values.update({k:v for k,v in imported.items() if k in scope})
+        values = dict(imported)
+        replaced = active_parks | scope
+        for k in replaced:
+            values[k] = Decimal(0)
+        for k,v in usage[reel['id']].items():
+            values[k] = v
         previous = amount(reel.get('utilizado', 0))
         external_total = sum(external.values(),Decimal(0)) if all(v is not None for v in external.values()) else None
         difference = previous-external_total if previous is not None and external_total is not None else None

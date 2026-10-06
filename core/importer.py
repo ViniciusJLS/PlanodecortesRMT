@@ -125,7 +125,7 @@ def import_control(content, selected):
             dist = number(get('DISTANCIA LINEAR'))
             if not start or not end or dist is None or start.startswith('#') or end.startswith('#'):
                 warnings.append(f'{name}!{i}: linha incompleta ou com erro Excel; corrija a origem. Registro mantido para validação.')
-            for level in (1, 2):
+            for level in (1, 2, 3):
                 cable = text(get(f'DESCRICAO (NIVEL {level})'))
                 if not cable and level == 1:
                     cable = text(get('DESCRICAO'))
@@ -150,7 +150,11 @@ def import_control(content, selected):
                                  ordem=count[(name, circuit, level, phase, route)], de=start, para=end,
                                  linear=dist if dist is not None else -1, folga=fraction, reserva=reserve,
                                  corte_fim='PERMITIDO', fixa='', bobina_original=reel,
-                                 observacao=obs, origem=f'{name}!{i}'))
+                                 observacao=obs, origem=f'{name}!{i}',
+                                 qte_caixas=number(get('QTE. CAIXAS'), 0), sobra_caixa=number(get('SOBRA CAIXA'), 0),
+                                 qte_postes=number(get('QTE. POSTE'), 0), sobra_poste=number(get('SOBRA POSTE'), 0),
+                                 qte_turbinas=number(get('QTE. TURBINA'), 0), sobra_turbina=number(get('SOBRA SAIDA TURBINA'), 0),
+                                 reserva_outros=0))
     w.close()
     wf.close()
     warnings.insert(0, 'Os cortes foram importados como PERMITIDO. Confirme amarrações e travessias na tela Critérios antes de otimizar; a marca TRAV não determina sozinha os limites da travessia.')
