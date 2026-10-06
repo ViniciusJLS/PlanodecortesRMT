@@ -26,7 +26,7 @@ def available(reel):
 
 
 def key(t):
-    return tuple(str(t.get(k, '')) for k in ('parque', 'circuito', 'nivel', 'fase', 'condutor', 'tipo', 'rota'))
+    return tuple(str(t.get(k, '')) for k in ('parque', 'circuito', 'nivel', 'fase', 'condutor', 'tipo', 'rota', 'bloco_tramo'))
 
 
 def raw_length(rows):

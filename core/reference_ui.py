@@ -9,7 +9,8 @@ from . import engine, project as projects
 from .reference import (FIELDS, sheets, read_sheet, guess_header, guess_mapping, parse_reference,
                         apply_reference, register_park, reference_template, optimize_scope, scope_key)
 from .subparks import CIRCUITS, LEVELS
-from .exporter import export
+from .exporter import export, export_subpark
+from .tramo import is_aux, aux_bounds, parse_aux
 from .importer import norm
 from zipfile import BadZipFile
 
@@ -97,13 +98,20 @@ def render_mapping(project, content, filename, prefix, config):
     digest = hashlib.sha256(content).hexdigest()
     key = prefix+'_'+digest[:16]
     names = sheets(content)
-    sheet = st.selectbox('Aba do Excel', names, index=names.index(config['parque']) if config['parque'] in names else 0, key=key+'_sheet')
+    preferred = config['parque'] if config['parque'] in names else 'PLANO DE CORTE' if 'PLANO DE CORTE' in names else names[0]
+    sheet = st.selectbox('Aba do Excel', names, index=names.index(preferred), key=key+'_sheet')
     config['sheet'] = sheet
     data = sheet_data(content, sheet)
     if not data:
         st.warning('A aba selecionada está vazia.')
         return
     key += '_'+sheet
+    detected = any(is_aux(row) for row in data[:50])
+    layout = st.selectbox('Formato da referência', ['Tabela com De e Para','AUX TRAMO: postes em I e distância em L'],
+        index=1 if detected else 0, key=key+'_layout')
+    if layout.startswith('AUX TRAMO'):
+        render_aux(project,content,filename,key,config,data)
+        return
     header = int(st.number_input('Linha do cabeçalho', min_value=1, max_value=len(data), value=guess_header(data), key=key+'_header'))
     if header == len(data):
         st.warning('Não há linhas depois do cabeçalho.')
@@ -146,6 +154,29 @@ def render_mapping(project, content, filename, prefix, config):
     except ValueError as exc:
         st.error(str(exc))
         return
+    preview_and_import(project, content, filename, key, config, rows, mapping, start, end, phase_mode, percentage, skipped)
+
+
+def render_aux(project,content,filename,key,config,data):
+    _,first,last=aux_bounds(data)
+    st.info('Coluna I: poste. Coluna L: distância entre o poste da linha anterior (De) e o da linha atual (Para). Distância zero inicia outro tramo; linhas vazias e marcadores P. não viram trechos.')
+    a,b=st.columns(2)
+    start=int(a.number_input('Primeira linha de postes',min_value=1,max_value=len(data),value=first,key=key+'_aux_start'))
+    end=int(b.number_input('Última linha de postes',min_value=1,max_value=len(data),value=last,key=key+'_aux_end'))
+    with st.expander('Visualizar postes I e distâncias L'):
+        preview=[{'Linha Excel':i,'Poste (I)':str(data[i-1][8] or ''),'Distância tramo (L)':str(data[i-1][11])} for i in range(start,min(end,start+299)+1)]
+        st.dataframe(pd.DataFrame(preview),hide_index=True,width='stretch')
+    try:
+        rows,boundaries=parse_aux(data,config,start,end)
+    except ValueError as exc:
+        st.error(str(exc))
+        return
+    st.caption(f'{boundaries} inícios de tramo/marcadores identificados. Cada vão positivo gera as fases A, B e C, sem conectar os diferentes blocos.')
+    mapping={'poste':8,'linear':11,'distance_position':'linha_para'}
+    preview_and_import(project,content,filename,key+'_aux',config,rows,mapping,start,end,'aux_tramo',False,0)
+
+
+def preview_and_import(project,content,filename,key,config,rows,mapping,start,end,phase_mode,percentage,skipped):
     st.write(f'**Prévia: {len(rows)} registros de fase para {config["parque"]}, {config["circuito"]}, nível {config["nivel"]}.**')
     if skipped:
         st.caption(f'{skipped} linhas de outros circuitos/níveis/tipos ou cabeçalhos foram ignoradas.')
@@ -190,6 +221,12 @@ def render_optimization(project, park):
         cuts = [c for c in plan['cortes'] if c['parque']==park]
         st.dataframe(pd.DataFrame(cuts).drop(columns='trechos',errors='ignore'), hide_index=True,width='stretch')
         st.caption('As tabelas e o resumo já exibem as bobinas calculadas. Os arquivos abaixo contêm o plano validado de todos os subparques do projeto.')
+        if cuts:
+            st.download_button('Baixar Excel final deste subparque',export_subpark(project,park),
+                f'Plano_de_Corte_{park.replace("/","-")}.xlsx',
+                'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',key=key+'_subpark_final')
+        else:
+            st.info('Este subparque ainda não tem lançamentos calculados para exportar.')
         a,b=st.columns(2)
         a.download_button('Baixar controle Excel do plano', export(project,'controle'),'Controle_RMT.xlsx',
             'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',key=key+'_control')

@@ -279,7 +279,8 @@ elif page == 'Traçado':
         for k,default in [('rota','Principal'),('fixa',''),('observacao',''),('bobina_original',''),('corte_fim','PERMITIDO'),('reserva',0),('folga',.05)]:
             clean[k] = clean[k].fillna(default)
         remainder = df[df.parque != park] if park != 'Todos' else pd.DataFrame(columns=fields)
-        p['trechos'] = records(pd.concat([remainder,clean],ignore_index=True))
+        previous = {r['id']:r for r in p['trechos']}
+        p['trechos'] = [{**previous.get(r.get('id'),{}), **r} for r in records(pd.concat([remainder,clean],ignore_index=True))]
         p['criterios_confirmados'] = False
         commit()
         st.success('Traçado salvo. Revise novamente os critérios de corte.')
