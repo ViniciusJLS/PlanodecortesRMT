@@ -6,9 +6,9 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 
-def new_project(name='Novo projeto'):
+def new_project(name='Nova obra'):
     return dict(versao=1, id=str(uuid.uuid4()), nome=name, revisao='00', codigo='PLANO-RMT',
-                trechos=[], bobinas=[], avisos=[], criterios_confirmados=False,
+                trechos=[], bobinas=[], subparques=[], avisos=[], criterios_confirmados=False,
                 criterios=dict(sobra_minima=50, peso_cortes=1000, peso_bobinas=100, peso_perda=1), plano=None)
 
 
@@ -54,6 +54,16 @@ def load(ident):
     if row is None:
         raise ValueError('Projeto não encontrado.')
     return json.loads(row[0])
+
+
+def create_work(name, code='PLANO-RMT'):
+    name = str(name or '').strip()
+    if not name:
+        raise ValueError('Informe o nome da obra.')
+    work = new_project(name)
+    work['codigo'] = str(code or '').strip() or 'PLANO-RMT'
+    save(work)
+    return work
 
 
 def restore(content):
