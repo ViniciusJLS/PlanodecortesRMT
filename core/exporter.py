@@ -128,3 +128,44 @@ def export(project, kind):
          ['Status do cálculo',plan['status']], ['Sobra mínima reutilizável [m]',project['criterios']['sobra_minima']],
          ['Identificação dos dados',plan['fingerprint']], ['Consumo','Reserva de planejamento; não constitui baixa de execução']], [37,110])
     return workbook(sheets)
+
+
+def export_subpark(project, park):
+    """Excel final do subparque, com alocações e saldo do estoque da obra."""
+    plan=project.get('plano')
+    if not plan or plan.get('fingerprint') != fingerprint(project):
+        raise ValueError('Calcule e valide o plano antes de baixar o Excel final.')
+    issues=validate(project,plan['cortes'])
+    if issues:
+        raise ValueError('\n'.join(issues[:20]))
+    cuts=[c for c in plan['cortes'] if c['parque']==park]
+    if not cuts:
+        raise ValueError('Este subparque não possui lançamentos no plano.')
+    assigned={ident:c for c in cuts for ident in c['trechos']}
+    rows=[r for r in project['trechos'] if r['id'] in assigned]
+    from .subparks import natural
+    rows.sort(key=lambda r:tuple(natural(r.get(k,'')) for k in ('tipo','circuito','nivel','rota','ordem','fase')))
+    meta=f"Obra: {project['nome']} | Subparque: {park} | Revisão {project['revisao']} | {plan['status']}"
+    detailed=[[r['circuito'],r['nivel'],r['fase'],r['tipo'],r['condutor'],assigned[r['id']]['bobina'],
+        r['de'],r['para'],r['linear'],r['folga'],r['reserva'],assigned[r['id']]['id'],r.get('origem',''),r.get('observacao','')] for r in rows]
+    consumed=Counter()
+    for cut in cuts:consumed[cut['bobina']]+=cut['projeto']
+    inventory=[r for r in stock(project,plan['cortes']) if consumed[r['bobina']]]
+    sheets=[('PLANO DE CORTE','TRECHOS E BOBINAS ALOCADAS',meta,
+        ['Circuito','Nível','Fase','Tipo','Condutor','Bobina alocada','De','Para','Distância linear [m]',
+         'Folga (fração)','Reserva [m]','Lançamento','Origem na referência','Observações'],detailed,
+        [12,9,9,18,34,24,27,27,22,18,16,16,44,40]),
+        ('LANÇAMENTOS','LANÇAMENTOS CONTÍNUOS',meta,
+        ['Lançamento','Circuito','Nível','Fase','Tipo','Condutor','Bobina','De','Para','Linear [m]','Acréscimos [m]','Projeto [m]'],
+        [[c[k] for k in ('id','circuito','nivel','fase','tipo','condutor','bobina','de','para','linear','acrescimo','projeto')] for c in cuts],
+        [16,12,9,9,18,34,24,27,27,18,18,18]),
+        ('RESUMO_BOBINAS','BOBINAS UTILIZADAS NESTE SUBPARQUE',meta,
+        ['Bobina','Condutor','Base [m]','Anterior [m]','Uso neste subparque [m]','Reservado em toda obra [m]','Saldo na obra [m]'],
+        [[r['bobina'],r['condutor'],r['base'],r['anterior'],consumed[r['bobina']],r['reservado'],r['saldo']] for r in inventory],
+        [24,34,18,18,25,28,23]),
+        ('CRITÉRIOS','CRITÉRIOS DO RESULTADO',meta,['Regra','Valor'],
+        [['Cálculo de projeto','Soma das distâncias lineares com folgas e reservas; arredondamento apenas por lançamento contínuo'],
+         ['Distância por trecho','A coluna Linear mantém o valor da referência; a metragem de corte consta em LANÇAMENTOS'],
+         ['Saldo','Considera o consumo anterior e as reservas de todos os subparques desta obra'],
+         ['Dados do plano',plan['fingerprint']],['Status',plan['status']]], [35,110])]
+    return workbook(sheets)
