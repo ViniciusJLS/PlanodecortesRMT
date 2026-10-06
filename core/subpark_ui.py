@@ -5,6 +5,7 @@ import pandas as pd
 import streamlit as st
 from . import project as projects
 from .subparks import CIRCUITS, LEVELS, RESERVE_FIELDS, natural, phase_groups, table_html, replace_group
+from .reference_ui import new_park, render_reference, render_optimization
 
 
 def open_summary():
@@ -13,12 +14,14 @@ def open_summary():
 
 def render(project):
     st.caption('Selecione o subparque. Salve cada trecho antes de trocar de seleção; os lançamentos salvos alimentam o Resumo de bobinas.')
-    parks = sorted({r['parque'] for r in project['trechos']}, key=natural)
+    new_park(project)
+    parks = sorted({r['parque'] for r in project['trechos']} | set(project.get('subparques', [])), key=natural)
     if not parks:
-        st.info('Importe os subparques em Projeto e importação ou cadastre seus trechos em Traçado.')
+        st.info('Cadastre um subparque acima para importar seu Excel de referência.')
         return
     prefix = f"subpark_{project['id']}"
     park = st.selectbox('Subparque', parks, key=prefix+'_park')
+    render_reference(project, park)
     a, b = st.columns(2)
     circuit = a.selectbox('Filtrar circuito', ['Todos']+CIRCUITS, key=prefix+'_circuit')
     level = b.selectbox('Filtrar nível', ['Todos']+LEVELS, key=prefix+'_level')
@@ -44,6 +47,7 @@ def render(project):
         with st.expander(f'Adicionar ou editar trecho — {title}'):
             group_editor(project, park, installation, visible, prefix, circuit, level)
     st.caption('A → B → C por trecho, com separador duplo. Reservas em metros incluem sobras de caixas, postes e saídas de turbina. O resumo soma a metragem sem arredondar cada linha e arredonda uma vez por lançamento contínuo.')
+    render_optimization(project, park)
 
 
 def group_editor(project, park, installation, groups, prefix, circuit_filter, level_filter):

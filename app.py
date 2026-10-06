@@ -144,7 +144,8 @@ elif page == 'Projeto e importação':
                 if st.button('Importar parques selecionados',type='primary',disabled=not selected):
                     with st.spinner('Lendo cabeçalhos e metragens…'):
                         rows,reels,warnings = importer.import_control(content,selected)
-                    p.update(trechos=rows,bobinas=reels,avisos=warnings,criterios_confirmados=False)
+                    p.update(trechos=rows,bobinas=reels,avisos=warnings,criterios_confirmados=False,
+                             subparques=selected,referencias_subparques={},arquivos_referencia={})
                     p['nome'] = 'Plano RMT · ' + ', '.join(selected)
                     commit()
                     st.success(f'{len(rows)} trechos e {len(reels)} bobinas importados.')
@@ -166,6 +167,9 @@ elif page == 'Projeto e importação':
                 if f and st.button(f'Substituir {kind}'):
                     try:
                         p[kind] = importer.import_csv(f.getvalue(),kind)
+                        if kind == 'trechos':
+                            p.update(subparques=sorted({r['parque'] for r in p['trechos']}),
+                                     referencias_subparques={},arquivos_referencia={})
                         p['criterios_confirmados'] = False
                         commit()
                         st.success('Dados importados. Confira as telas de cadastro.')
@@ -452,4 +456,3 @@ elif page == 'Plano e entregáveis':
                 st.error(str(exc))
     elif not (run or original):
         st.info('Gere uma nova alocação ou consolide as bobinas já atribuídas no controle importado.')
-

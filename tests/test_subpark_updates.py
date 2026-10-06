@@ -126,7 +126,7 @@ class SubparkInterface(unittest.TestCase):
             app.sidebar.radio[0].set_value('Subparques').run()
             self.assertFalse(app.exception)
             self.assertNotIn('Registros de fases', [m.label for m in app.metric])
-            self.assertEqual([s.value for s in app.subheader], ['Rede aérea', 'Rede subterrânea'])
+            self.assertEqual([s.value for s in app.subheader][:2], ['Rede aérea', 'Rede subterrânea'])
             select = lambda label: next(s for s in app.selectbox if s.label == label)
             self.assertEqual(select('Filtrar circuito').options, ['Todos']+CIRCUITS)
             self.assertEqual(select('Filtrar nível').options, ['Todos']+LEVELS)
