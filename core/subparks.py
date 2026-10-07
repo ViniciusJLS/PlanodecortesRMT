@@ -175,8 +175,8 @@ def phase_groups(project, park, circuit=None, level=None, installation=None):
     return groups, warnings, current
 
 
-def table_html(groups, underground=False):
-    columns=[('circuito','Circuito'),('nivel','Nível'),('fase','Fase'),('condutor','Condutor'),
+def table_html(groups, underground=False, columns=None):
+    columns=columns or [('circuito','Circuito'),('nivel','Nível'),('fase','Fase'),('condutor','Condutor'),
              ('bobina','Bobina'),('de','De'),('para','Para'),('linear','Linear [m]'),
              ('folga','Folga [%]'),('reserva','Reserva [m]'),('necessidade','Necessidade sem arred. [m]'),
              ('corte','Lançamento'),('corte_fim','Corte no fim'),('restricao_estrutura','Estrutura sem corte'),('observacao','Observações')]

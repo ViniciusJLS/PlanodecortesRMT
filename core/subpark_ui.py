@@ -8,6 +8,7 @@ from .subparks import CIRCUITS, LEVELS, RESERVE_FIELDS, natural, phase_groups, t
 from .reference_ui import new_park, render_reference, render_optimization
 from .conductor_ui import selection
 from .conductors import options as conductor_options
+from .aerial_table import aerial_table_html
 
 
 def open_summary():
@@ -39,7 +40,10 @@ def render(project):
         visible, warnings, current = phase_groups(project, park,
             None if circuit == 'Todos' else circuit, None if level == 'Todos' else level, installation)
         if visible:
-            st.markdown(table_html(visible, underground=installation == 'SUBTERRÂNEO'), unsafe_allow_html=True)
+            html=table_html(visible,underground=True) if installation=='SUBTERRÂNEO' else aerial_table_html(project,visible)
+            st.markdown(html, unsafe_allow_html=True)
+            if installation=='AÉREO':
+                st.caption('Estrutura da aba RSA-01, sem as colunas L a S. Distância projeto exibe a necessidade do vão sem arredondar; diferenças entre níveis são identificadas na célula. Sobra bobina é o saldo na obra após os lançamentos de todos os subparques. O arredondamento continua sendo feito uma vez por lançamento contínuo.')
         else:
             st.info('Nenhum trecho nesta seção para os filtros selecionados.')
         if warnings:
