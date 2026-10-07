@@ -71,6 +71,7 @@ class WorkIsolation(unittest.TestCase):
             self.assertEqual(app.session_state['project']['codigo'],before['codigo'])
             self.assertEqual(next(s for s in app.selectbox if s.label=='Circuito do lançamento').value,'C01')
             self.assertEqual(project.load(a['id'])['codigo'],'SUL-EDITADA')
+            count_before_create=len(project.saved_projects())
             app.sidebar.radio[0].set_value('Obras').run()
             next(t for t in app.text_input if t.label=='Nome da obra').set_value('Obra Nova')
             next(button for button in app.button if button.label=='Cadastrar e abrir obra').click().run()
@@ -78,7 +79,7 @@ class WorkIsolation(unittest.TestCase):
             self.assertEqual(app.session_state['project']['nome'],'Obra Nova')
             self.assertEqual(app.session_state['project']['trechos'],[])
             self.assertEqual(app.session_state['project']['bobinas'],[])
-            self.assertEqual(len(project.saved_projects()),3)
+            self.assertEqual(len(project.saved_projects()),count_before_create+1)
 
 
 if __name__=='__main__':unittest.main()
