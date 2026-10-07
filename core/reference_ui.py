@@ -10,8 +10,9 @@ from .reference import (FIELDS, sheets, read_sheet, guess_header, guess_mapping,
                         apply_reference, register_park, reference_template, optimize_scope, scope_key)
 from .subparks import CIRCUITS, LEVELS
 from .exporter import export, export_subpark
-from .tramo import is_aux, aux_bounds, parse_aux
-from .importer import norm
+from .tramo import is_aux, aux_bounds, parse_aux, restricted_rows
+from .conductors import options as conductor_options
+from .importer import norm, number, text
 from zipfile import BadZipFile
 
 
@@ -58,7 +59,7 @@ def render_reference(project, park):
         typ = c.selectbox('Instalação do lançamento', ['AÉREO','SUBTERRÂNEO'], key=prefix+'_type')
         a,b = st.columns(2)
         route = a.text_input('Rota do lançamento', 'Principal', key=prefix+'_route')
-        conductors = sorted({r['condutor'] for r in project['bobinas'] if r.get('tipo')==typ})
+        conductors = conductor_options(project,typ)
         conductor = b.selectbox('Condutor padrão', ['Ler da coluna do Excel']+conductors+['Informar outro condutor'], key=prefix+'_conductor_'+typ)
         if conductor == 'Informar outro condutor':
             conductor = st.text_input('Descrição do condutor', key=prefix+'_custom_conductor')
@@ -159,19 +160,34 @@ def render_mapping(project, content, filename, prefix, config):
 
 def render_aux(project,content,filename,key,config,data):
     _,first,last=aux_bounds(data)
-    st.info('Coluna I: poste. Coluna L: distância entre o poste da linha anterior (De) e o da linha atual (Para). Distância zero inicia outro tramo; linhas vazias e marcadores P. não viram trechos.')
+    st.info('L pertence ao vão do poste da linha anterior até o poste da linha atual em I. Ex.: 88,49 m corresponde a P.0/7D → P.0/5D. Linhas zero não geram lançamentos; seu poste pode ser a origem do próximo vão positivo. Azul e esforço 1000 em gaveta mantêm a metragem e proíbem cortes na estrutura.')
     a,b=st.columns(2)
     start=int(a.number_input('Primeira linha de postes',min_value=1,max_value=len(data),value=first,key=key+'_aux_start'))
     end=int(b.number_input('Última linha de postes',min_value=1,max_value=len(data),value=last,key=key+'_aux_end'))
+    entries=[i for i in range(start,end+1) if len(data[i-1])>=12 and text(data[i-1][8]) and text(data[i-1][8]).upper() not in ('P.','P','-','—') and (i==start or number(data[i-1][11])==0)]
+    if not entries:
+        st.error('Não há postes de início no intervalo selecionado.')
+        return
+    config['linha_inicial']=st.selectbox('Poste para receber o vão inicial da SE (opcional)',entries,
+        format_func=lambda i:f"Linha {i} · {data[i-1][8]}",key=key+'_initial_pole')
+    a,b=st.columns(2)
+    config['origem_inicial']=a.text_input('Origem anterior ao primeiro poste (opcional)',placeholder='Ex.: SE',key=key+'_initial_origin').strip()
+    config['distancia_inicial']=b.number_input('Distância inicial SE → poste escolhido, quando L é zero [m]',min_value=0.0,value=0.0,key=key+'_initial_distance')
+    st.caption('Se o primeiro L for positivo, ele será usado com a origem informada. Se for zero, só será criado um vão adicional quando você informar origem e distância inicial positiva.')
+    restrictions=restricted_rows(content,config['sheet'])
     with st.expander('Visualizar postes I e distâncias L'):
         preview=[{'Linha Excel':i,'Poste (I)':str(data[i-1][8] or ''),'Distância tramo (L)':str(data[i-1][11])} for i in range(start,min(end,start+299)+1)]
         st.dataframe(pd.DataFrame(preview),hide_index=True,width='stretch')
     try:
-        rows,boundaries=parse_aux(data,config,start,end)
+        rows,boundaries=parse_aux(data,config,start,end,restrictions)
     except ValueError as exc:
         st.error(str(exc))
         return
     st.caption(f'{boundaries} inícios de tramo/marcadores identificados. Cada vão positivo gera as fases A, B e C, sem conectar os diferentes blocos.')
+    selected={i:reason for i,reason in restrictions.items() if start<=i<=end}
+    if selected:
+        st.dataframe(pd.DataFrame([{'Linha Excel':i,'Estrutura':data[i-1][8],'Restrição':reason} for i,reason in selected.items()]),hide_index=True,width='stretch')
+        st.caption('Restrições reconhecidas na fonte e no preenchimento I:L (RGB, cores indexadas e tema), ou nas colunas J/K. Cores aplicadas apenas por formatação condicional devem ser conferidas nos critérios.')
     mapping={'poste':8,'linear':11,'distance_position':'linha_para'}
     preview_and_import(project,content,filename,key+'_aux',config,rows,mapping,start,end,'aux_tramo',False,0)
 

@@ -9,6 +9,7 @@ from core import engine, importer, project as projects
 from core.exporter import export
 from core.inventory import summarize, row_style
 from core.subpark_ui import render as render_subparks
+from core.conductor_ui import render as render_conductors
 
 st.set_page_config(page_title='RMT · Plano de corte', page_icon='⚡', layout='wide')
 st.markdown('''<style>
@@ -93,7 +94,7 @@ with st.sidebar:
         format_func=lambda ident:f'{works[ident]} · {ident[:8]}', key='obra_ativa', on_change=choose_work)
     st.caption('Salve os formulários antes de trocar de obra. Cada obra mantém seus próprios subparques, estoque e plano.')
     st.divider()
-    page = st.radio('Área de trabalho', ['Visão geral','Obras','Projeto e importação','Subparques','Traçado','Resumo de bobinas','Bobinas','Critérios de corte','Plano e entregáveis'], label_visibility='collapsed', key='work_area')
+    page = st.radio('Área de trabalho', ['Visão geral','Obras','Projeto e importação','Subparques','Condutores','Traçado','Resumo de bobinas','Bobinas','Critérios de corte','Plano e entregáveis'], label_visibility='collapsed', key='work_area')
     st.divider()
     st.markdown(f"**{p['nome']}**")
     st.caption(f"Revisão {p['revisao']} · {len(p['trechos'])} trechos")
@@ -257,6 +258,9 @@ elif page == 'Projeto e importação':
 
 elif page == 'Subparques':
     render_subparks(p)
+
+elif page == 'Condutores':
+    render_conductors(p)
 
 elif page == 'Traçado':
     st.caption('Cada linha representa um condutor entre duas estruturas. A ordem pertence à combinação parque, circuito, nível, fase e rota.')

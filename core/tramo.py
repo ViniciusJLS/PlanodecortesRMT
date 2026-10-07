@@ -1,5 +1,11 @@
 """Converte a sequência I/L do AUX TRAMO em trechos explícitos por fase."""
 import math
+import io
+import colorsys
+import re
+import xml.etree.ElementTree as ET
+import openpyxl
+from openpyxl.styles.colors import COLOR_INDEX
 from .importer import text, norm, number
 from .reference import parse_reference
 
@@ -18,7 +24,46 @@ def aux_bounds(data):
     return header,used[0],used[-1]
 
 
-def parse_aux(data, config, start, end):
+def restricted_rows(content, sheet):
+    """Reconhece azul em fonte/preenchimento I:L e esforço 1000 em gaveta."""
+    w=openpyxl.load_workbook(io.BytesIO(content),read_only=True,data_only=True)
+    try:
+        ws=w[sheet]
+        if ws.max_row>30000 or ws.max_column>150:
+            raise ValueError('A aba excede o limite de leitura.')
+        themes=[]
+        if w.loaded_theme:
+            root=ET.fromstring(w.loaded_theme)
+            scheme=root.find('.//{http://schemas.openxmlformats.org/drawingml/2006/main}clrScheme')
+            if scheme is not None:
+                themes=[next(iter(e)).get('val') or next(iter(e)).get('lastClr') for e in scheme]
+        def blue(color):
+            if color is None:return False
+            rgb=None
+            if color.type=='rgb':rgb=color.rgb
+            elif color.type=='indexed' and color.indexed<len(COLOR_INDEX):rgb=COLOR_INDEX[color.indexed]
+            elif color.type=='theme' and color.theme<len(themes):rgb=themes[color.theme]
+            if not isinstance(rgb,str) or not re.fullmatch('[0-9a-fA-F]{6,8}',rgb):return False
+            r,g,b=(int(rgb[-6:][i:i+2],16)/255 for i in (0,2,4))
+            if color.tint:
+                h,l,s=colorsys.rgb_to_hls(r,g,b)
+                l=l*(1+color.tint) if color.tint<0 else l*(1-color.tint)+color.tint
+                r,g,b=colorsys.hls_to_rgb(h,l,s)
+            h,s,v=colorsys.rgb_to_hsv(r,g,b)
+            return .50<=h<=.72 and s>=.20 and v>=.25
+        result={}
+        for cells in ws.iter_rows(min_col=9,max_col=12):
+            if not text(cells[0].value) or norm(cells[0].value)=='POSTE':continue
+            marked=any(blue(c.font.color) or (c.fill.patternType=='solid' and blue(c.fill.fgColor)) for c in cells)
+            effort=text(cells[1].value).replace(' ','')
+            gaveta=norm(cells[2].value)=='GAVETA' and re.search(r'(?:^|/)1000(?:\.0)?$',effort)
+            if marked or gaveta:
+                result[cells[0].row]='Marcação azul' if marked else 'Esforço 1000 em gaveta'
+        return result
+    finally:w.close()
+
+
+def parse_aux(data, config, start, end, restrictions=None):
     """L da linha Para mede o vão entre I da linha anterior e I da atual."""
     if start<1 or end<start or end>len(data):
         raise ValueError('Intervalo inválido.')
@@ -27,6 +72,15 @@ def parse_aux(data, config, start, end):
     physical=[]
     errors=[]
     boundaries=0
+    restrictions=restrictions or {}
+    initial=text(config.get('origem_inicial'))
+    initial_line=int(config.get('linha_inicial',start))
+    if not start<=initial_line<=end:raise ValueError('O poste inicial deve estar no intervalo importado.')
+    initial_distance=number(config.get('distancia_inicial',0))
+    if initial_distance is None or not math.isfinite(initial_distance) or initial_distance<0:
+        raise ValueError('Distância inicial inválida.')
+    if initial_distance and not initial:
+        raise ValueError('Informe a estrutura de origem do vão inicial.')
     for line in range(start,end+1):
         raw=data[line-1]
         pole=text(raw[8]) if len(raw)>8 else ''
@@ -53,10 +107,16 @@ def parse_aux(data, config, start, end):
             block+=1
             boundaries+=1
             previous=(pole,line)
+            if line==initial_line and initial and initial_distance>0:
+                physical.append((initial,pole,initial_distance,0,line,block))
             continue
         if previous is None:
-            errors.append(f'Linha {line}: distância positiva sem poste anterior no intervalo. Inclua a linha de início do tramo.')
-            continue
+            if line==start and line==initial_line and initial:
+                previous=(initial,0)
+                block+=1
+            else:
+                errors.append(f'Linha {line}: distância positiva sem poste anterior no intervalo. Inclua a linha de início do tramo ou informe a origem inicial (SE).')
+                continue
         if previous[0]==pole:
             errors.append(f'Linha {line}: mesmo poste nas duas extremidades.')
         else:
@@ -80,6 +140,14 @@ def parse_aux(data, config, start, end):
                 row['referencia_de_linha']=record[3]
                 row['referencia_para_linha']=record[4]
                 row['referencia_distancia_linha']=record[4]
+                row['sem_corte_de']=bool(restrictions.get(record[3]))
+                row['sem_corte_para']=bool(restrictions.get(record[4]))
+                row['restricao_estrutura']='; '.join(dict.fromkeys(str(restrictions[i]) for i in record[3:5] if restrictions.get(i)))
+                if row['sem_corte_para']:row['corte_fim']='PROIBIDO'
+                if record[3]==0:
+                    row['origem']=f"{config['sheet']}!I{record[4]} / origem inicial informada"
+                if row['restricao_estrutura']:
+                    row['observacao']='Sem corte na estrutura: '+row['restricao_estrutura']
                 # O escopo continua sendo a rota escolhida; separação física via identificador de bloco.
                 row['rota']=config['rota']
                 row['bloco_tramo']=str(block_id)
