@@ -6,6 +6,8 @@ import streamlit as st
 from . import project as projects
 from .subparks import CIRCUITS, LEVELS, RESERVE_FIELDS, natural, phase_groups, table_html, replace_group
 from .reference_ui import new_park, render_reference, render_optimization
+from .conductor_ui import selection
+from .conductors import options as conductor_options
 
 
 def open_summary():
@@ -46,6 +48,7 @@ def render(project):
                     st.warning(warning)
         with st.expander(f'Adicionar ou editar trecho — {title}'):
             group_editor(project, park, installation, visible, prefix, circuit, level)
+        selection(project,park,installation,visible,f'{prefix}_{park}_{installation}_{st.session_state.edit_version}')
     st.caption('A → B → C por trecho, com separador duplo. Reservas em metros incluem sobras de caixas, postes e saídas de turbina. O resumo soma a metragem sem arredondar cada linha e arredonda uma vez por lançamento contínuo.')
     render_optimization(project, park)
 
@@ -96,7 +99,7 @@ def group_editor(project, park, installation, groups, prefix, circuit_filter, le
         edited = st.data_editor(pd.DataFrame(rows, columns=fields), hide_index=True, width='stretch',
             disabled=['fase'], num_rows='fixed', key=form_key+'_phases', column_config={
                 'fase':st.column_config.TextColumn('Fase'),
-                'condutor':st.column_config.TextColumn('Condutor', required=True),
+                'condutor':st.column_config.SelectboxColumn('Condutor',options=conductor_options(project,installation),required=True),
                 'bobina_original':st.column_config.SelectboxColumn('Bobina', options=['']+reel_options),
                 'linear':st.column_config.NumberColumn('Linear [m]', min_value=0.01, required=True),
                 'folga':st.column_config.NumberColumn('Folga (0,05 = 5%)', min_value=0.0, max_value=1.0, required=True),

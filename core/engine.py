@@ -55,6 +55,22 @@ def segments(rows):
     return result
 
 
+def node_key(row, pole):
+    return tuple(str(row.get(k,'')) for k in ('parque','circuito','nivel','tipo','rota','bloco_tramo'))+(pole,)
+
+
+def blocked_nodes(rows):
+    return {node_key(r,r[side]) for r in rows for side,flag in [('de','sem_corte_de'),('para','sem_corte_para')] if r.get(flag)}
+
+
+def start_allowed(row, blocked):
+    return node_key(row,row['de']) not in blocked
+
+
+def end_allowed(row, blocked):
+    return row['corte_fim']!='PROIBIDO' and node_key(row,row['para']) not in blocked
+
+
 def input_errors(project):
     errors = []
     rows, reels = project['trechos'], project['bobinas']
@@ -105,8 +121,11 @@ def input_errors(project):
     if not reels:
         errors.append('Cadastre ao menos uma bobina.')
     if not errors:
+        blocked=blocked_nodes(rows)
         for chain in segments(rows):
-            if chain[-1]['corte_fim'] == 'PROIBIDO':
+            if not start_allowed(chain[0],blocked):
+                errors.append(f"{chain[0]['id']}: a rota/condutor começa em estrutura sem corte. Inclua o vão anterior ou mantenha o condutor contínuo.")
+            if not end_allowed(chain[-1],blocked):
                 errors.append(f"{chain[-1]['id']}: a rota termina em um ponto com corte proibido.")
     return errors
 
@@ -126,6 +145,7 @@ def validate(project, cuts):
     rows = {r['id']: r for r in project['trechos']}
     reels = {r['id']: r for r in project['bobinas']}
     coverage, consumption = Counter(), Counter()
+    blocked=blocked_nodes(project['trechos'])
     for c in cuts:
         ids = c.get('trechos', [])
         coverage.update(ids)
@@ -139,7 +159,9 @@ def validate(project, cuts):
         for a, b in zip(rs, rs[1:]):
             if a['para'] != b['de'] or a['ordem'] >= b['ordem'] or a['corte_fim'] == 'OBRIGATORIO':
                 errors.append(f"{c['id']}: continuidade ou corte obrigatório violado.")
-        if rs[-1]['corte_fim'] == 'PROIBIDO':
+        if not start_allowed(rs[0],blocked):
+            errors.append(f"{c['id']}: início em estrutura sem corte.")
+        if not end_allowed(rs[-1],blocked):
             errors.append(f"{c['id']}: término em corte proibido.")
         if any(r.get('fixa') and r['fixa'] != reel['id'] for r in rs):
             errors.append(f"{c['id']}: bobina fixada não respeitada.")
@@ -176,11 +198,14 @@ def optimize(project, timeout=30, mode='global'):
     reels = project['bobinas']
     model = cp_model.CpModel()
     candidates, coverage, by_reel = [], defaultdict(list), defaultdict(list)
+    blocked=blocked_nodes(project['trechos'])
     for chain in segments(project['trechos']):
         compatible = [(j, b) for j, b in enumerate(reels)
                       if b['condutor'] == chain[0]['condutor'] and b['tipo'] == chain[0]['tipo'] and available(b) > 0]
         max_cap = max((available(b) for _, b in compatible), default=Decimal(0))
         for a in range(len(chain)):
+            if not start_allowed(chain[a],blocked):
+                continue
             if a and chain[a-1]['corte_fim'] == 'PROIBIDO':
                 continue
             for end in range(a, len(chain)):
@@ -188,7 +213,7 @@ def optimize(project, timeout=30, mode='global'):
                 size = length(block)
                 if size > max_cap:
                     break
-                if chain[end]['corte_fim'] != 'PROIBIDO':
+                if end_allowed(chain[end],blocked):
                     fixed = {r['fixa'] for r in block if r.get('fixa')}
                     for j, reel in compatible:
                         if (fixed and fixed != {reel['id']}) or size > available(reel):

@@ -147,14 +147,15 @@ def export_subpark(project, park):
     rows.sort(key=lambda r:tuple(natural(r.get(k,'')) for k in ('tipo','circuito','nivel','rota','ordem','fase')))
     meta=f"Obra: {project['nome']} | Subparque: {park} | Revisão {project['revisao']} | {plan['status']}"
     detailed=[[r['circuito'],r['nivel'],r['fase'],r['tipo'],r['condutor'],assigned[r['id']]['bobina'],
-        r['de'],r['para'],r['linear'],r['folga'],r['reserva'],assigned[r['id']]['id'],r.get('origem',''),r.get('observacao','')] for r in rows]
+        r['de'],r['para'],r['linear'],r['folga'],r['reserva'],assigned[r['id']]['id'],r.get('origem',''),r.get('observacao',''),
+        r.get('corte_fim','PERMITIDO'),r.get('restricao_estrutura','')] for r in rows]
     consumed=Counter()
     for cut in cuts:consumed[cut['bobina']]+=cut['projeto']
     inventory=[r for r in stock(project,plan['cortes']) if consumed[r['bobina']]]
     sheets=[('PLANO DE CORTE','TRECHOS E BOBINAS ALOCADAS',meta,
         ['Circuito','Nível','Fase','Tipo','Condutor','Bobina alocada','De','Para','Distância linear [m]',
-         'Folga (fração)','Reserva [m]','Lançamento','Origem na referência','Observações'],detailed,
-        [12,9,9,18,34,24,27,27,22,18,16,16,44,40]),
+         'Folga (fração)','Reserva [m]','Lançamento','Origem na referência','Observações','Corte no fim','Estrutura sem corte'],detailed,
+        [12,9,9,18,34,24,27,27,22,18,16,16,44,40,18,34]),
         ('LANÇAMENTOS','LANÇAMENTOS CONTÍNUOS',meta,
         ['Lançamento','Circuito','Nível','Fase','Tipo','Condutor','Bobina','De','Para','Linear [m]','Acréscimos [m]','Projeto [m]'],
         [[c[k] for k in ('id','circuito','nivel','fase','tipo','condutor','bobina','de','para','linear','acrescimo','projeto')] for c in cuts],
@@ -167,5 +168,6 @@ def export_subpark(project, park):
         [['Cálculo de projeto','Soma das distâncias lineares com folgas e reservas; arredondamento apenas por lançamento contínuo'],
          ['Distância por trecho','A coluna Linear mantém o valor da referência; a metragem de corte consta em LANÇAMENTOS'],
          ['Saldo','Considera o consumo anterior e as reservas de todos os subparques desta obra'],
+         ['Estruturas sem corte','Azul ou esforço 1000 em gaveta não permitem início/fim de bobina. A distância positiva do vão permanece no cálculo.'],
          ['Dados do plano',plan['fingerprint']],['Status',plan['status']]], [35,110])]
     return workbook(sheets)

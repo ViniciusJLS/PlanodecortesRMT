@@ -179,7 +179,7 @@ def table_html(groups, underground=False):
     columns=[('circuito','Circuito'),('nivel','Nível'),('fase','Fase'),('condutor','Condutor'),
              ('bobina','Bobina'),('de','De'),('para','Para'),('linear','Linear [m]'),
              ('folga','Folga [%]'),('reserva','Reserva [m]'),('necessidade','Necessidade sem arred. [m]'),
-             ('corte','Lançamento'),('observacao','Observações')]
+             ('corte','Lançamento'),('corte_fim','Corte no fim'),('restricao_estrutura','Estrutura sem corte'),('observacao','Observações')]
     if underground:
         index = next(i for i, (field, _) in enumerate(columns) if field == 'reserva')
         columns[index:index] = [('qte_caixas','Qte. caixas'), ('sobra_caixa','Sobra caixas [m]'),
