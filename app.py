@@ -10,6 +10,7 @@ from core.exporter import export
 from core.inventory import summarize, row_style
 from core.subpark_ui import render as render_subparks
 from core.conductor_ui import render as render_conductors
+from core.initial_stock import ensure_stock, MIGRATION
 
 st.set_page_config(page_title='RMT · Plano de corte', page_icon='⚡', layout='wide')
 st.markdown('''<style>
@@ -33,6 +34,12 @@ if 'project' not in st.session_state:
     st.session_state.edit_version = 0
 
 p = st.session_state.project
+
+seeded_work,seeded_count=ensure_stock(p)
+if seeded_work['id']==p['id'] and seeded_work is not p:
+    st.session_state.project=seeded_work
+    st.session_state.edit_version+=1
+    p=seeded_work
 
 
 def fmt(v):
@@ -342,6 +349,9 @@ elif page == 'Resumo de bobinas':
         st.caption('Edite o comprimento nominal, a metragem real e o consumo anterior na página Bobinas. O resumo acompanha as alterações salvas.')
 
 elif page == 'Bobinas':
+    registration=p.get('cadastros_aplicados',{}).get(MIGRATION)
+    if registration:
+        st.info(f"Estoque da referência cadastrado nesta obra: {registration['adicionadas']} bobinas adicionadas; {registration['existentes']} IDs existentes preservados. Origem: {registration['arquivo']}.")
     st.caption('Metragem real preenchida substitui a redução contratual de 3%. Deixe o campo vazio quando a metragem ainda não estiver confirmada.')
     fields = ['romaneio','id','condutor','tipo','nominal','real','utilizado']
     df = pd.DataFrame(p['bobinas'],columns=fields)
