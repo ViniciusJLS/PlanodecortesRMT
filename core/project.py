@@ -1,3 +1,5 @@
+from copy import deepcopy
+from .operations import DEFAULTS
 import json
 import os
 import sqlite3
@@ -9,7 +11,7 @@ from pathlib import Path
 def new_project(name='Nova obra'):
     return dict(versao=1, id=str(uuid.uuid4()), nome=name, revisao='00', codigo='PLANO-RMT',
                 trechos=[], bobinas=[], subparques=[], avisos=[], criterios_confirmados=False,
-                criterios=dict(sobra_minima=50, peso_cortes=1000, peso_bobinas=100, peso_perda=1), plano=None)
+                criterios=deepcopy(DEFAULTS), plano=None)
 
 
 def demo():

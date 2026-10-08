@@ -11,6 +11,7 @@ from core.inventory import summarize, row_style
 from core.subpark_ui import render as render_subparks
 from core.conductor_ui import render as render_conductors
 from core.initial_stock import ensure_stock, MIGRATION
+from core.operations_ui import render_criteria, render_report
 
 st.set_page_config(page_title='RMT · Plano de corte', page_icon='⚡', layout='wide')
 st.markdown('''<style>
@@ -394,17 +395,7 @@ elif page == 'Critérios de corte':
     st.caption('As restrições se aplicam ao lançamento físico. Uma travessia contínua impede cortes em suas estruturas intermediárias.')
     a,b = st.columns([1,1.4])
     with a:
-        st.subheader('Aproveitamento e prioridades')
-        with st.form('criteria'):
-            threshold = st.number_input('Sobra mínima reutilizável [m]',min_value=0,value=int(p['criterios']['sobra_minima']))
-            wc = st.number_input('Peso por corte',min_value=1,value=int(p['criterios']['peso_cortes']))
-            wb = st.number_input('Peso por bobina utilizada',min_value=0,value=int(p['criterios']['peso_bobinas']))
-            wl = st.number_input('Peso por metro de sobra abaixo do limite',min_value=0,value=int(p['criterios']['peso_perda']))
-            if st.form_submit_button('Salvar critérios'):
-                p['criterios'].update(sobra_minima=threshold,peso_cortes=wc,peso_bobinas=wb,peso_perda=wl)
-                commit()
-                st.success('Critérios salvos.')
-        st.caption('Os pesos definem a prioridade da otimização. Uma sobra pequena é sinalizada, mas não é descartada automaticamente do estoque.')
+        render_criteria(p, commit)
     with b:
         st.subheader('Aplicar restrição a uma travessia')
         if p['trechos']:
@@ -487,6 +478,7 @@ elif page == 'Plano e entregáveis':
         c.metric('Consumo de projeto',fmt(sum(r['projeto'] for r in cuts))+' m')
         d.metric('Cálculo',str(plan.get('segundos',0))+' s')
         st.caption(plan['status'])
+        render_report(p, plan['cortes'])
         tabs = st.tabs(['Lançamentos contínuos','Resumo de bobinas','Ajuste manual','Exportação'])
         with tabs[0]:
             st.dataframe(pd.DataFrame(cuts).drop(columns='trechos'),hide_index=True,width='stretch')
