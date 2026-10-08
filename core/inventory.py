@@ -64,6 +64,9 @@ def summarize(project):
             capacity = None
         balance = capacity-total if capacity is not None and total is not None else None
         state = 'Dados pendentes' if balance is None else 'Excedida' if balance < 0 else 'Esgotada' if balance == 0 else 'Com saldo'
+        nominal = amount(reel.get('nominal'))
+        if balance is not None and balance < 0 and reel.get('real') is None and nominal is not None and total <= nominal:
+            state = 'Acima de 97%; dentro do nominal; real a confirmar'
         if ids[reel['id']] > 1:
             state += ' · ID duplicado'
         row = {'Romaneio':reel.get('romaneio',''), 'Bobina':reel['id'], 'Condutor':reel.get('condutor',''), 'Tipo':reel.get('tipo','')}
@@ -80,6 +83,8 @@ def summarize(project):
 
 
 def row_style(row):
+    if 'real a confirmar' in str(row.get('Situação','')) and 'duplicado' not in str(row.get('Situação','')):
+        return ['color: #92400e; background-color: #fffbeb'] * len(row)
     balance = row.get('Saldo disponível [m]')
     if balance is not None and balance < 0:
         return ['color: #b91c1c; background-color: #fff1f2; font-weight: 600'] * len(row)

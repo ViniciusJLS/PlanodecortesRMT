@@ -235,6 +235,8 @@ def render_optimization(project, park):
     plan = project.get('plano')
     if plan and plan.get('fingerprint') == engine.fingerprint(project):
         st.success(plan['status'])
+        for warning in engine.input_warnings(project):
+            st.warning(warning)
         render_report(project, plan['cortes'])
         cuts = [c for c in plan['cortes'] if c['parque']==park]
         st.dataframe(pd.DataFrame(cuts).drop(columns='trechos',errors='ignore'), hide_index=True,width='stretch')
