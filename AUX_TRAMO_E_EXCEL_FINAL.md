@@ -7,12 +7,12 @@ O aplicativo reconhece o formato da aba **PLANO DE CORTE** com **POSTE na coluna
 - **De:** poste de I na linha anterior.
 - **Para:** poste de I na linha atual.
 - **Distância linear:** L da linha atual (linha Para).
-- **L = 0:** início de um novo tramo; não cria trecho de comprimento zero e não liga o novo ramal ao anterior.
+- **L = 0:** início de um bloco da referência; não cria trecho de comprimento zero. Não impõe corte por si só: na otimização, blocos podem formar um lançamento contínuo se o último PARA coincidir com o próximo DE, a ordem avançar e a continuação for única, mantendo parque, circuito, nível, fase, condutor, instalação e rota.
 - Linhas sem poste e marcadores incompletos como `P.` interrompem a sequência e não viram trechos. Distância positiva sem poste anterior, poste incompleto com distância positiva, valores negativos ou fórmulas sem resultados salvos bloqueiam a prévia.
 
 Por exemplo, no arquivo AUX enviado, I4 = P.0/8D (AD5), I5 = P.0/7D (AD4) e L5 = 50,09 m. O trecho importado é **P.0/8D (AD5) → P.0/7D (AD4), 50,09 m**. A ordem de lançamento segue a ordem das linhas do bloco I/L, que no arquivo enviado é descendente na sequência de postes. O aplicativo não usa o bloco espelhado C/F.
 
-Na referência enviada, o cabeçalho é a linha 3, os postes estão nas linhas 4–74 e a conversão produz 66 vãos físicos / 198 registros de fase. Os diferentes tramos permanecem separados também na otimização e consolidação, mesmo se algum poste coincidir nas fronteiras. Os dados de origem são preservados ao salvar alterações na página Traçado.
+Na referência enviada, o cabeçalho é a linha 3, os postes estão nas linhas 4–74 e a conversão produz 66 vãos físicos / 198 registros de fase. Caminhos desconectados permanecem separados na otimização e consolidação. Blocos com ligação física inequívoca em DE/PARA são unidos para não exigir uma troca de bobina artificial na fronteira. Cortes obrigatórios continuam obrigatórios; estruturas de 1000/gaveta e marcações azuis não permitem iniciar ou terminar uma bobina. Os dados de origem são preservados ao salvar alterações na página Traçado.
 
 ## Como usar
 
@@ -36,3 +36,5 @@ O arquivo final é um novo relatório tabular calculado pelo aplicativo. A refer
 ## Validação
 
 Os testes verificam leitura I/L, uso da distância da linha Para, interrupções de tramo, preservação das três fases, valores inválidos, correspondência entre bobinas exportadas e plano calculado, exportação limitada ao subparque selecionado e o fluxo da interface desde a prévia até o download.
+
+Para sair da SE, o traçado precisa conter o vão SE → primeiro poste com distância conhecida. O cálculo aloca bobinas em trechos sem bobina cadastrada, mas não inventa esse vão, sua metragem ou a ligação de ramais.

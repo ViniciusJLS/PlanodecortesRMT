@@ -16,6 +16,7 @@ def fingerprint(project):
     data = {k: project.get(k) for k in ('trechos', 'bobinas', 'criterios')}
     data['versao_operacional'] = operations.VERSION
     data['politica_consumo_historico'] = 1
+    data['continuidade_blocos'] = 1
     return hashlib.sha256(json.dumps(data, sort_keys=True, ensure_ascii=False).encode()).hexdigest()
 
 
@@ -47,6 +48,11 @@ def key(t):
     return tuple(str(t.get(k, '')) for k in ('parque', 'circuito', 'nivel', 'fase', 'condutor', 'tipo', 'rota', 'bloco_tramo'))
 
 
+def physical_key(row):
+    # Reference blocks are not physical termination points.
+    return key(row)[:-1]
+
+
 def raw_length(rows):
     # A folga pode variar entre trechos; arredondamento acontece UMA vez por corte.
     return sum((dec(r['linear']) * (1 + dec(r['folga'])) + dec(r.get('reserva', 0)) for r in rows), Decimal(0))
@@ -70,11 +76,36 @@ def segments(rows):
             chain.append(t)
         if chain:
             result.append(chain)
-    return result
+    # Join only unambiguous physical continuations between reference blocks.
+    # Keep disconnected paths and branches separate; never invent a span.
+    following, preceding = defaultdict(list), defaultdict(list)
+    for i, first in enumerate(result):
+        for j, second in enumerate(result):
+            if i == j or physical_key(first[0]) != physical_key(second[0]):
+                continue
+            if (first[-1]['para'] == second[0]['de'] and
+                    first[-1]['ordem'] < second[0]['ordem']):
+                following[i].append(j)
+                preceding[j].append(i)
+    links = {i: choices[0] for i, choices in following.items()
+             if len(choices) == 1 and len(preceding[choices[0]]) == 1}
+    incoming = set(links.values())
+    joined, visited = [], set()
+    for first in [i for i in range(len(result)) if i not in incoming]:
+        chain, current = [], first
+        while current not in visited:
+            visited.add(current)
+            chain.extend(result[current])
+            if current not in links:
+                break
+            current = links[current]
+        joined.append(chain)
+    joined.extend(chain for i, chain in enumerate(result) if i not in visited)
+    return joined
 
 
 def node_key(row, pole):
-    return tuple(str(row.get(k,'')) for k in ('parque','circuito','nivel','tipo','rota','bloco_tramo'))+(pole,)
+    return tuple(str(row.get(k,'')) for k in ('parque','circuito','nivel','tipo','rota'))+(pole,)
 
 
 def blocked_nodes(rows):
@@ -172,7 +203,7 @@ def validate(project, cuts):
             continue
         rs = [rows[i] for i in ids]
         reel = reels[c['bobina']]
-        if any(key(r) != key(rs[0]) for r in rs):
+        if any(physical_key(r) != physical_key(rs[0]) for r in rs):
             errors.append(f"{c['id']}: mistura de rotas, circuitos, fases ou condutores.")
         for a, b in zip(rs, rs[1:]):
             if a['para'] != b['de'] or a['ordem'] >= b['ordem'] or a['corte_fim'] == 'OBRIGATORIO':
