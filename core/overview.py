@@ -37,15 +37,20 @@ def chart_data(project):
 
 def pie(frame, category, value):
     import altair as alt
-    return (alt.Chart(frame).transform_joinaggregate(total=f'sum({value})')
-        .transform_calculate(percent=f'datum[{value!r}] / datum.total')
+    # Vega interprets brackets/dots in field names as nested data access.
+    # Stable internal fields keep the original labels only as display titles.
+    data = frame[[category, value]].copy()
+    data.columns = ['category', 'value']
+    return (alt.Chart(data).transform_joinaggregate(total='sum(value)')
+        .transform_calculate(percent='datum.value / datum.total')
         .mark_arc(innerRadius=45, outerRadius=110).encode(
-            theta=alt.Theta(value, type='quantitative', stack=True),
-            color=alt.Color(category, type='nominal', legend=alt.Legend(title=category)),
-            tooltip=[alt.Tooltip(category, type='nominal'),
-                     alt.Tooltip(value, type='quantitative', format=',.2f' if '[m]' in value else ',.0f'),
+            theta=alt.Theta('value:Q', title=value, stack=True),
+            color=alt.Color('category:N', title=category, legend=alt.Legend(title=category)),
+            tooltip=[alt.Tooltip('category:N', title=category),
+                     alt.Tooltip('value:Q', title=value, format=',.2f' if '[m]' in value else ',.0f'),
                      alt.Tooltip('percent:Q', title='Participação', format='.1%')]
         ).properties(height=290))
+
 
 
 def render(project):
