@@ -155,10 +155,12 @@ def report(project,cuts):
 
 def criteria_rows(project,cuts):
     p=settings(project);r=report(project,cuts)
+    from .engine import input_warnings
     return [['Prioridades','Menos lançamentos; bobinas em lançamento único com sobra tolerada; evitar sobras intermediárias e operações curtas; proximidade; estoque mobilizado'],
         ['Sobra tolerada até [m]',p['sobra_tolerada']],['Sobra reutilizável acima de [m]',p['sobra_reutilizavel']],
         ['Lançamento curto até [m]',p['lancamento_minimo']],
         ['Ordem de execução',' → '.join(p['ordem_execucao']) or 'Não definida; transporte avaliado por pares de parques'],
         ['Lançamentos curtos no plano',len(r['lancamentos_curtos'])],['Sobras intermediárias no plano',r['sobras_intermediarias']],
         ['Índice de transporte',r['indice_transporte']],['Custos','Indicadores operacionais relativos; não estimam valores em reais nem horas de equipe'],
+        *[['Metragem histórica a confirmar',v] for v in input_warnings(project)],
         *[[f"Proximidade: {v['parque_a']} / {v['parque_b']}",v['proximidade']] for v in p['proximidades']]]

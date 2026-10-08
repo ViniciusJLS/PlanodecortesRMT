@@ -301,6 +301,8 @@ elif page == 'Traçado':
         st.success('Traçado salvo. Revise novamente os critérios de corte.')
     if st.button('Conferir dados do projeto'):
         show_issues(engine.input_errors(p))
+        for warning in engine.input_warnings(p):
+            st.warning(warning)
 
 elif page == 'Resumo de bobinas':
     st.caption('Distribuição das bobinas entre os parques do controle importado e do projeto aberto. Todas as metragens estão em metros.')
@@ -335,14 +337,16 @@ elif page == 'Resumo de bobinas':
         if conductor != 'Todos':
             view = view[view['Condutor']==conductor]
         if exceeded:
-            view = view[view['Saldo disponível [m]']<0]
+            view = view[view['Situação'].str.startswith('Excedida')]
         a,b,c,d = st.columns(4)
         a.metric('Bobinas na seleção',len(view))
         b.metric('Total utilizado',fmt(view['Total utilizado [m]'].sum())+' m')
         c.metric('Saldo líquido',fmt(view['Saldo disponível [m]'].sum())+' m')
-        d.metric('Bobinas excedidas',int((view['Saldo disponível [m]']<0).sum()))
+        d.metric('Bobinas excedidas',int(view['Situação'].str.startswith('Excedida').sum()))
         if view['Situação'].str.contains('pendentes|duplicado',case=False,regex=True).any():
             st.warning('Há dados pendentes ou IDs duplicados. Valores desconhecidos não entram nos totais; registros duplicados permanecem visíveis para conferência.')
+        if view['Situação'].str.contains('real a confirmar',regex=False).any():
+            st.warning('Consumos acima da base de 97%, mas dentro do nominal, aparecem em amarelo. Confirme a metragem real; o saldo negativo permanece visível e essas bobinas não recebem novos lançamentos.')
         numeric = parks+['Ajuste / sem parque [m]','Total utilizado [m]','Saldo disponível [m]','Base da bobina [m]','Nominal [m]','Real confirmada [m]']
         st.dataframe(view.style.apply(row_style,axis=1).format({k:'{:,.2f}' for k in numeric},na_rep='—',decimal=',',thousands='.'),
                      hide_index=True,width='stretch',height=500)
@@ -454,6 +458,8 @@ elif page == 'Plano e entregáveis':
     c.write('')
     if c.button('Validar entradas',width='stretch'):
         show_issues(engine.input_errors(p))
+        for warning in engine.input_warnings(p):
+            st.warning(warning)
     x,y = st.columns(2)
     run = x.button('Gerar plano de corte',type='primary',width='stretch')
     original = y.button('Consolidar bobinas da planilha importada',width='stretch')
@@ -468,7 +474,7 @@ elif page == 'Plano e entregáveis':
     action = None
     if run or original:
         errors = engine.input_errors(p)
-        warnings = [] if p.get('criterios_confirmados') else ['Os pontos de corte, travessias, folgas e reservas ainda não foram confirmados na página Critérios de corte.']
+        warnings = engine.input_warnings(p) + ([] if p.get('criterios_confirmados') else ['Os pontos de corte, travessias, folgas e reservas ainda não foram confirmados na página Critérios de corte.'])
         if errors or warnings:
             pending = dict(context=context, original=bool(original), errors=errors, warnings=warnings)
             st.session_state[request_key] = pending
@@ -514,6 +520,8 @@ elif page == 'Plano e entregáveis':
         c.metric('Consumo de projeto',fmt(sum(r['projeto'] for r in cuts))+' m')
         d.metric('Cálculo',str(plan.get('segundos',0))+' s')
         st.caption(plan['status'])
+        for warning in engine.input_warnings(p):
+            st.warning(warning)
         if plan.get('revisao_pendente'):
             st.warning('Este plano foi calculado com revisão de critérios pendente. Confira os pontos de corte, travessias, folgas e reservas.')
         render_report(p, plan['cortes'])

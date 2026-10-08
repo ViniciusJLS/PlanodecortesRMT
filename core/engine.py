@@ -15,6 +15,7 @@ def dec(value):
 def fingerprint(project):
     data = {k: project.get(k) for k in ('trechos', 'bobinas', 'criterios')}
     data['versao_operacional'] = operations.VERSION
+    data['politica_consumo_historico'] = 1
     return hashlib.sha256(json.dumps(data, sort_keys=True, ensure_ascii=False).encode()).hexdigest()
 
 
@@ -25,6 +26,21 @@ def base(reel):
 
 def available(reel):
     return base(reel) - dec(reel.get('utilizado', 0))
+
+
+def historical_nominal_exception(reel):
+    """Somente histórico sem real confirmada, entre 97% e nominal."""
+    try:
+        previous, nominal = dec(reel.get('utilizado', 0)), dec(reel['nominal'])
+        return (reel.get('real') is None and previous.is_finite() and nominal.is_finite()
+                and nominal >= 0 and base(reel) < previous <= nominal)
+    except (ValueError, TypeError, KeyError, ArithmeticError):
+        return False
+
+
+def input_warnings(project):
+    return [f"Bobina {r['id']}: consumo histórico supera a base de 97% em {dec(r.get('utilizado', 0))-base(r)} m, mas está dentro do nominal de {r['nominal']} m. Metragem real a confirmar; indisponível para novos lançamentos."
+            for r in project['bobinas'] if historical_nominal_exception(r)]
 
 
 def key(t):
@@ -90,8 +106,8 @@ def input_errors(project):
                 numbers.append(dec(r['real']))
             if any(not n.is_finite() or n < 0 for n in numbers):
                 raise ValueError('metragem inválida')
-            if available(r) < 0:
-                raise ValueError('consumo anterior maior que a base disponível')
+            if available(r) < 0 and not historical_nominal_exception(r):
+                raise ValueError('consumo anterior maior que a metragem real confirmada ou que o nominal permitido para histórico')
         except (ValueError, KeyError, ArithmeticError) as exc:
             errors.append(f"Bobina {r.get('id')}: {exc}.")
     orders = set()
@@ -298,6 +314,6 @@ def stock(project, cuts):
         remaining = available(reel) - dec(used[reel['id']])
         result.append(dict(bobina=reel['id'], condutor=reel['condutor'], nominal=reel['nominal'], real=reel.get('real'),
                            base=float(base(reel)), anterior=reel.get('utilizado', 0), reservado=used[reel['id']],
-                           saldo=float(remaining), classificacao='Não utilizada neste plano' if not used[reel['id']] else
+                           saldo=float(remaining), classificacao=('Histórico dentro do nominal; real a confirmar' if historical_nominal_exception(reel) else 'Não utilizada neste plano') if not used[reel['id']] else
                            operations.remainder_class(remaining, operations.settings(project))))
     return result
