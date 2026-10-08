@@ -73,7 +73,7 @@ def parse_aux(data, config, start, end, restrictions=None):
     errors=[]
     boundaries=0
     restrictions=restrictions or {}
-    initial=text(config.get('origem_inicial'))
+    initial=text(config.get('origem_inicial')) or 'SE'
     initial_line=int(config.get('linha_inicial',start))
     if not start<=initial_line<=end:raise ValueError('O poste inicial deve estar no intervalo importado.')
     initial_distance=number(config.get('distancia_inicial',0))
@@ -106,9 +106,8 @@ def parse_aux(data, config, start, end, restrictions=None):
         if value==0:
             block+=1
             boundaries+=1
-            previous=(pole,line)
-            if line==initial_line and initial and initial_distance>0:
-                physical.append((initial,pole,initial_distance,0,line,block))
+            # L=0 marks a nonexistent pole: the next positive span starts at SE.
+            previous=(initial,0)
             continue
         if previous is None:
             if line==start and line==initial_line and initial:

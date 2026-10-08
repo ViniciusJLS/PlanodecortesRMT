@@ -24,7 +24,7 @@ class ConductorAndRestrictionTests(unittest.TestCase):
         cfg={**config(),'origem_inicial':'SE','distancia_inicial':40,'linha_inicial':3}
         rows,_=parse_aux([aux_row('P1',0),aux_row('P2',88.49),aux_row('P87',0),aux_row('P88',25)],cfg,1,4)
         self.assertEqual([(r['de'],r['para'],r['linear']) for r in rows[::3]],
-            [('P1','P2',88.49),('SE','P87',40),('P87','P88',25)])
+            [('SE','P2',88.49),('SE','P88',25)])
         self.assertTrue(all(r['linear']>0 for r in rows))
         cfg={**config(),'origem_inicial':'SE'}
         rows,_=parse_aux([aux_row('P87',55)],cfg,1,1)
@@ -66,7 +66,7 @@ class ConductorAndRestrictionTests(unittest.TestCase):
         p=self.work()
         for r in p['trechos']:r['corte_fim']='PERMITIDO'
         plan=engine.optimize(p,5)
-        self.assertTrue(all(c['de']=='P1' and c['para']=='P3' for c in plan['cortes']))
+        self.assertTrue(all(c['de']=='SE' and c['para']=='P3' for c in plan['cortes']))
         self.assertFalse(engine.validate(p,plan['cortes']))
         bad=[engine.make_cut([r], 'B1',i) for i,r in enumerate(p['trechos'])]
         self.assertTrue(any('proibido' in e or 'sem corte' in e for e in engine.validate(p,bad)))

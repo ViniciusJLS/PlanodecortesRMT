@@ -26,17 +26,16 @@ class TramoTests(unittest.TestCase):
               aux_row('P3',0),aux_row('P4',30.03),aux_row('P.',0)]
         rows,bounds=parse_aux(data,config(),1,6)
         self.assertEqual(len(rows),9)
-        self.assertEqual((rows[0]['de'],rows[0]['para'],rows[0]['linear']),('P1','P2',10.01))
-        self.assertEqual((rows[6]['de'],rows[6]['para'],rows[6]['linear']),('P3','P4',30.03))
+        self.assertEqual((rows[0]['de'],rows[0]['para'],rows[0]['linear']),('SE','P2',10.01))
+        self.assertEqual((rows[6]['de'],rows[6]['para'],rows[6]['linear']),('SE','P4',30.03))
         self.assertEqual(bounds,3)
-        # Um zero sem vão não impõe corte quando DE/PARA mantém continuidade física.
-        chains=engine.segments(rows)
-        self.assertEqual(len(chains),3)
-        self.assertTrue(all([(r['de'],r['para']) for r in chain]==[('P1','P2'),('P2','P3'),('P3','P4')] for chain in chains))
+        # O poste L=0 é excluído e reinicia o próximo tramo na SE.
+        self.assertEqual(len(engine.segments(rows)),6)
+        self.assertFalse(any(r['de']=='P1' or r['para']=='P1' for r in rows))
         self.assertEqual([r['ordem'] for r in rows],[1]*3+[2]*3+[3]*3)
 
     def test_missing_previous_or_formula_and_negative_are_blocked(self):
-        for data in [[aux_row('P1',50)], [aux_row('P1',0),aux_row('P2',None)],
+        for data in [[aux_row('P1',0),aux_row('P2',None)],
                      [aux_row('P1',0),aux_row('P2',-10)], [aux_row('P1',0),aux_row('P.',10)]]:
             with self.subTest(data=data),self.assertRaises(ValueError):
                 parse_aux(data,config(),1,len(data))
@@ -57,7 +56,7 @@ class TramoTests(unittest.TestCase):
         self.assertEqual([r[2] for r in exported],list('ABCABC'))
         assigned={ident:c['bobina'] for c in p['plano']['cortes'] for ident in c['trechos']}
         self.assertEqual(sorted(r[5] for r in exported),sorted(assigned[r['id']] for r in rows))
-        self.assertEqual(exported[0][6:9],('P1','P2',10.01))
+        self.assertEqual(exported[0][6:9],('SE','P2',10.01))
         self.assertFalse(any('Q1' in r for r in exported))
         summary=list(w['RESUMO_BOBINAS'].values)[4:]
         self.assertEqual(sum(r[4] for r in summary),sum(c['projeto'] for c in p['plano']['cortes'] if c['parque']=='RSA-01'))
@@ -72,7 +71,7 @@ class TramoTests(unittest.TestCase):
         self.assertEqual(aux_bounds(data),(3,4,74))
         rows,_=parse_aux(data,config(),4,74)
         self.assertEqual(len(rows),198)
-        self.assertEqual((rows[0]['de'],rows[0]['para'],rows[0]['linear']),('P.0/8D (AD5)','P.0/7D (AD4)',50.09))
+        self.assertEqual((rows[0]['de'],rows[0]['para'],rows[0]['linear']),('SE','P.0/7D (AD4)',50.09))
         self.assertFalse(any(r['de']=='P.' or r['para']=='P.' for r in rows))
         self.assertAlmostEqual(rows[-1]['linear'],234.72)
 

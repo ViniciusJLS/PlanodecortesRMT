@@ -244,7 +244,9 @@ def optimize(project, timeout=30, mode='global'):
     if errors:
         raise ValueError('\n'.join(errors[:50]))
     start_time = time.monotonic()
-    reels = project['bobinas']
+    from .greedy_seed import prepare
+    import sys
+    reels,seed = prepare(project,sys.modules[__name__])
     model = cp_model.CpModel()
     candidates, coverage, by_reel = [], defaultdict(list), defaultdict(list)
     blocked=blocked_nodes(project['trechos'])
@@ -279,10 +281,15 @@ def optimize(project, timeout=30, mode='global'):
     missing = [r['id'] for r in project['trechos'] if not coverage[r['id']]]
     if missing:
         raise ValueError('Sem lançamento viável para: ' + ', '.join(missing[:30]) + '. Verifique estoque, travessias, pontos de corte e bobinas fixadas.')
+    seed_keys={(tuple(c['trechos']),c['bobina']) for c in seed}
+    for x,rows,j,_ in candidates:
+        if seed_keys:
+            model.add_hint(x,int((tuple(r['id'] for r in rows),reels[j]['id']) in seed_keys))
     for variables in coverage.values():
         model.add_exactly_one(variables)
     stages = operations.objectives(model, candidates, by_reel, reels, available, project)
-    selected, results = None, []
+    selected = [c for c in candidates if (tuple(r['id'] for r in c[1]),reels[c[2]]['id']) in seed_keys] if seed else None
+    results = []
     for index, (label, expression) in enumerate(stages):
         remaining = timeout - (time.monotonic() - start_time)
         if remaining <= 0:

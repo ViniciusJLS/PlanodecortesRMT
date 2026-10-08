@@ -12,6 +12,7 @@ from core.overview import render as render_overview_charts
 from core.subpark_ui import render as render_subparks
 from core.conductor_ui import render as render_conductors
 from core.initial_stock import ensure_stock, MIGRATION
+from core.aux_zero_migration import migrate as migrate_aux_zero
 from core.operations_ui import render_criteria, render_report
 
 st.set_page_config(page_title='RMT · Plano de corte', page_icon='⚡', layout='wide')
@@ -42,6 +43,19 @@ if seeded_work['id']==p['id'] and seeded_work is not p:
     st.session_state.project=seeded_work
     st.session_state.edit_version+=1
     p=seeded_work
+
+
+try:
+    corrected,corrected_count=migrate_aux_zero(p)
+    if corrected is not p:
+        projects.save(corrected)
+        st.session_state.project=corrected
+        st.session_state.edit_version+=1
+        p=corrected
+        if corrected_count:
+            st.info(f'{corrected_count} registros atualizados: postes com L=0 foram excluídos das origens; os primeiros vãos positivos agora começam na SE/origem cadastrada. Recalcule o plano.')
+except (ValueError, OSError) as exc:
+    st.warning('Não foi possível atualizar as origens da referência salva: '+str(exc))
 
 
 def fmt(v):
