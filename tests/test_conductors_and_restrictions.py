@@ -121,7 +121,7 @@ class ConductorAndRestrictionTests(unittest.TestCase):
             self.assertFalse(app.exception)
             app.sidebar.radio[0].set_value('Subparques').run()
             self.assertFalse(app.exception)
-            app.multiselect[0].set_value([0,1])
+            next(w for w in app.multiselect if w.label=='Trechos que receberão o condutor').set_value([0,1])
             choice=next(s for s in app.selectbox if s.label=='Condutor para os trechos selecionados')
             choice.set_value('CA MAGNOLIA 954 MCM')
             next(b for b in app.button if b.label=='Aplicar condutor aos trechos').click().run()

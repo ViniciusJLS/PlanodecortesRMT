@@ -56,3 +56,39 @@ def selection(project,park,installation,groups,key):
                     ids=[r['id'] for i in selected for r in groups[i] if not r.get('ausente')]
                     persist(project,assign(project,park,ids,description,installation),'Condutor aplicado. Recalcule as bobinas e o Excel final.')
                 except (ValueError,OSError,sqlite3.Error) as exc:st.error(str(exc))
+
+
+def range_selection(project,park,installation,circuit,level,key):
+    from .conductor_range import paths, interval_ids, apply_interval
+    with st.expander('Alterar condutor entre dois postes'):
+        try:
+            routes=paths(project,park,installation,None if circuit=='Todos' else circuit,None if level=='Todos' else level)
+        except ValueError as exc:
+            st.error(str(exc));return
+        if not routes:
+            st.info('Importe ou cadastre os trechos desta rede para selecionar os postes.');return
+        def label(i):
+            r=routes[i];c,n,route,block=r['scope']
+            return f"{c} · N{n} · {route} · {r['nodes'][0]} → {r['nodes'][-1]}" + (f' · bloco {block}' if block else '')
+        route_index=st.selectbox('Rota do intervalo',list(range(len(routes))),format_func=label,key=key+'_route')
+        route=routes[route_index]
+        widget=key+f'_{route_index}'
+        a,b=st.columns(2)
+        start=a.selectbox('Primeiro poste',list(range(len(route['nodes'])-1)),format_func=lambda i:f"{route['nodes'][i]} · posição {i+1}",key=widget+'_start')
+        end=b.selectbox('Último poste',list(range(start+1,len(route['nodes']))),format_func=lambda i:f"{route['nodes'][i]} · posição {i+1}",key=widget+f'_{start}_end')
+        phases=st.multiselect('Fases do intervalo',['A','B','C'],default=['A','B','C'],key=widget+'_phases')
+        description=st.selectbox('Condutor do intervalo',options(project,installation),key=widget+'_conductor')
+        st.caption('O intervalo inclui os vãos do primeiro ao último poste, seguindo o sentido da rota. O vão após o último poste fica fora da seleção. Use o poste final como início do próximo intervalo para trocar de condutor sem sobrepor os vãos.')
+        try:
+            ids=interval_ids(project,park,installation,route,start,end,phases)
+            selected=[r for r in project['trechos'] if r['id'] in set(ids)]
+            st.write(f'{end-start} vãos por fase · {len(ids)} registros serão atualizados.')
+            st.dataframe(pd.DataFrame(selected)[['fase','de','para','condutor','linear']],hide_index=True,width='stretch')
+        except ValueError as exc:
+            st.warning(str(exc));ids=[]
+        st.caption('Ao salvar, bobinas incompatíveis são liberadas e o plano anterior precisa ser recalculado. Mudanças em estruturas sem corte exigem ajustar o intervalo até um ponto permitido.')
+        if st.button('Aplicar condutor do primeiro ao último poste',type='primary',disabled=not ids,key=widget+'_apply'):
+            try:
+                candidate=apply_interval(project,park,installation,route,start,end,phases,description)
+                persist(project,candidate,f'Condutor {description} aplicado de {route["nodes"][start]} até {route["nodes"][end]}. Tabela atualizada; recalcule o plano de bobinas.')
+            except (ValueError,OSError,sqlite3.Error) as exc:st.error(str(exc))

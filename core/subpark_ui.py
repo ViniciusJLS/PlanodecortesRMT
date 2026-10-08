@@ -6,7 +6,7 @@ import streamlit as st
 from . import project as projects
 from .subparks import CIRCUITS, LEVELS, RESERVE_FIELDS, natural, phase_groups, table_html, replace_group
 from .reference_ui import new_park, render_reference, render_optimization
-from .conductor_ui import selection
+from .conductor_ui import selection, range_selection
 from .conductors import options as conductor_options
 from .aerial_table import aerial_table_html
 
@@ -37,6 +37,7 @@ def render(project):
     b.metric('Bobinas identificadas', len({r.get('bobina') for group in groups for r in group if r.get('bobina')}))
     for installation, title in [('AÉREO', 'Rede aérea'), ('SUBTERRÂNEO', 'Rede subterrânea')]:
         st.subheader(title)
+        range_selection(project,park,installation,circuit,level,f'{prefix}_{park}_{installation}_{st.session_state.edit_version}_range')
         visible, warnings, current = phase_groups(project, park,
             None if circuit == 'Todos' else circuit, None if level == 'Todos' else level, installation)
         if visible:
