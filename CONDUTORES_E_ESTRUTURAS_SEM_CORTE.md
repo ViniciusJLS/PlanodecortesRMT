@@ -8,9 +8,9 @@ Integre esta alteração à branch main usada pelo Streamlit. Os lançamentos j�
 
 A distância L de uma linha corresponde ao poste I da linha anterior (De) até o poste I da linha atual (Para). Por exemplo, 88,49 m é o vão P.0/7D → P.0/5D. Não se usa a distância da linha De nem a distância de projeto arredondada.
 
-Linhas com L = 0 não geram trechos. O poste dessa linha pode ser o contexto para o próximo vão positivo, iniciando outro bloco físico. Marcadores P. e linhas vazias interrompem a sequência.
+Linhas com L = 0 representam postes inexistentes e são excluídas de DE/PARA. O primeiro vão positivo de cada tramo começa na SE (ou origem informada), usando L da linha desse primeiro poste válido. A partir dele, L segue medindo entre os postes válidos consecutivos. Marcadores P. e linhas vazias interrompem a sequência.
 
-Para um poste sem origem anterior, escolha em **Poste para receber o vão inicial da SE** o poste de início desejado. Informe a origem (ex.: SE). Se L for positivo na primeira linha do intervalo, será usado esse valor. Se L for zero, informe a distância real SE → poste no campo de distância inicial. Essa metragem informada cria um vão adicional explícito, sem aproveitar a distância de outro poste. O controle vale para o poste escolhido, inclusive quando ele aparece depois de outro bloco no intervalo.
+No campo **Origem dos tramos**, use SE ou a origem real do lançamento. Não é necessário informar distância para os postes de linha zero: eles não entram no traçado. As restrições azuis/1000-gaveta dessas linhas descartadas não são transferidas à SE.
 
 ## Estruturas sem corte
 

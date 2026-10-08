@@ -161,20 +161,15 @@ def render_mapping(project, content, filename, prefix, config):
 
 def render_aux(project,content,filename,key,config,data):
     _,first,last=aux_bounds(data)
-    st.info('L pertence ao vão do poste da linha anterior até o poste da linha atual em I. Ex.: 88,49 m corresponde a P.0/7D → P.0/5D. Linhas zero não geram lançamentos; seu poste pode ser a origem do próximo vão positivo. Azul e esforço 1000 em gaveta mantêm a metragem e proíbem cortes na estrutura.')
+    st.info('L é a distância até o poste válido da linha atual em I. Linhas com L = 0 representam postes inexistentes e são excluídas; a primeira linha positiva de cada tramo recebe o vão da SE usando seu próprio L. Azul e esforço 1000 em gaveta proíbem cortes nos postes válidos.')
     a,b=st.columns(2)
     start=int(a.number_input('Primeira linha de postes',min_value=1,max_value=len(data),value=first,key=key+'_aux_start'))
     end=int(b.number_input('Última linha de postes',min_value=1,max_value=len(data),value=last,key=key+'_aux_end'))
-    entries=[i for i in range(start,end+1) if len(data[i-1])>=12 and text(data[i-1][8]) and text(data[i-1][8]).upper() not in ('P.','P','-','—') and (i==start or number(data[i-1][11])==0)]
-    if not entries:
-        st.error('Não há postes de início no intervalo selecionado.')
-        return
-    config['linha_inicial']=st.selectbox('Poste para receber o vão inicial da SE (opcional)',entries,
-        format_func=lambda i:f"Linha {i} · {data[i-1][8]}",key=key+'_initial_pole')
-    a,b=st.columns(2)
-    config['origem_inicial']=a.text_input('Origem anterior ao primeiro poste (opcional)',placeholder='Ex.: SE',key=key+'_initial_origin').strip()
-    config['distancia_inicial']=b.number_input('Distância inicial SE → poste escolhido, quando L é zero [m]',min_value=0.0,value=0.0,key=key+'_initial_distance')
-    st.caption('Se o primeiro L for positivo, ele será usado com a origem informada. Se for zero, só será criado um vão adicional quando você informar origem e distância inicial positiva.')
+    config['linha_inicial']=start
+    config['origem_inicial']=st.text_input('Origem dos tramos',value='SE',key=key+'_initial_origin').strip() or 'SE'
+    config['distancia_inicial']=0
+    config['aux_zero_version']=2
+    st.caption('A linha zero não fornece poste nem metragem. A distância da primeira linha positiva liga a origem informada ao primeiro poste real; as demais ligam os postes válidos consecutivos.')
     restrictions=restricted_rows(content,config['sheet'])
     with st.expander('Visualizar postes I e distâncias L'):
         preview=[{'Linha Excel':i,'Poste (I)':str(data[i-1][8] or ''),'Distância tramo (L)':str(data[i-1][11])} for i in range(start,min(end,start+299)+1)]
@@ -184,7 +179,7 @@ def render_aux(project,content,filename,key,config,data):
     except ValueError as exc:
         st.error(str(exc))
         return
-    st.caption(f'{boundaries} inícios de tramo/marcadores identificados. Cada vão positivo gera as fases A, B e C, sem conectar os diferentes blocos.')
+    st.caption(f'{boundaries} inícios de tramo/marcadores identificados. Cada vão positivo gera as fases A, B e C; linhas zero não aparecem em DE/PARA.')
     selected={i:reason for i,reason in restrictions.items() if start<=i<=end}
     if selected:
         st.dataframe(pd.DataFrame([{'Linha Excel':i,'Estrutura':data[i-1][8],'Restrição':reason} for i,reason in selected.items()]),hide_index=True,width='stretch')
