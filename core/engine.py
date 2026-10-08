@@ -5,6 +5,7 @@ import hashlib
 import json
 import math
 import time
+from . import operations
 
 
 def dec(value):
@@ -13,6 +14,7 @@ def dec(value):
 
 def fingerprint(project):
     data = {k: project.get(k) for k in ('trechos', 'bobinas', 'criterios')}
+    data['versao_operacional'] = operations.VERSION
     return hashlib.sha256(json.dumps(data, sort_keys=True, ensure_ascii=False).encode()).hexdigest()
 
 
@@ -72,7 +74,7 @@ def end_allowed(row, blocked):
 
 
 def input_errors(project):
-    errors = []
+    errors = operations.parameter_errors(project)
     rows, reels = project['trechos'], project['bobinas']
     for label, items in [('trecho', rows), ('bobina', reels)]:
         ids = [str(t.get('id', '')) for t in items]
@@ -232,48 +234,40 @@ def optimize(project, timeout=30, mode='global'):
         raise ValueError('Sem lançamento viável para: ' + ', '.join(missing[:30]) + '. Verifique estoque, travessias, pontos de corte e bobinas fixadas.')
     for variables in coverage.values():
         model.add_exactly_one(variables)
-    opens, losses = [], []
-    threshold = int(project['criterios'].get('sobra_minima', 50)) * 100
-    for j, terms in by_reel.items():
-        cap = int((available(reels[j]) * 100).to_integral_value(rounding=ROUND_FLOOR))
-        used = sum(x * size * 100 for x, size in terms)
-        opened = model.new_bool_var(f'open{j}')
-        model.add(used <= cap * opened)
-        model.add(sum(x for x, _ in terms) >= opened)
-        opens.append(opened)
-        if threshold > 0:
-            remainder = model.new_int_var(0, cap, f'remainder{j}')
-            model.add(remainder == cap * opened - used)
-            tiny = model.new_bool_var(f'tiny{j}')
-            model.add(remainder < threshold).only_enforce_if(tiny)
-            model.add(remainder >= threshold).only_enforce_if(tiny.Not())
-            loss = model.new_int_var(0, cap, f'loss{j}')
-            model.add(loss == remainder).only_enforce_if(tiny)
-            model.add(loss == 0).only_enforce_if(tiny.Not())
-            losses.append(loss)
-    criteria = project['criterios']
-    model.minimize(int(criteria.get('peso_cortes', 1000)) * 100 * sum(x for x, *_ in candidates)
-                   + int(criteria.get('peso_bobinas', 100)) * 100 * sum(opens)
-                   + int(criteria.get('peso_perda', 1)) * sum(losses))
-    solver = cp_model.CpSolver()
-    solver.parameters.max_time_in_seconds = max(1, timeout - (time.monotonic() - start_time))
-    solver.parameters.num_search_workers = 4
-    if mode == 'rapido':
-        solver.parameters.stop_after_first_solution = True
-    status = solver.solve(model)
-    if status not in (cp_model.OPTIMAL, cp_model.FEASIBLE):
-        if status == cp_model.INFEASIBLE:
-            raise ValueError('Não existe alocação integral com este estoque e estes critérios. Revise comprimentos, reservas e restrições.')
-        raise ValueError('Nenhuma solução integral encontrada no tempo disponível. Aumente o tempo ou reduza o escopo; isso não comprova falta de cabo.')
-    cuts = [make_cut(rows, reels[j]['id'], i + 1) for i, (x, rows, j, _) in
-            enumerate(c for c in candidates if solver.value(c[0]))]
+    stages = operations.objectives(model, candidates, by_reel, reels, available, project)
+    selected, results = None, []
+    for index, (label, expression) in enumerate(stages):
+        remaining = timeout - (time.monotonic() - start_time)
+        if remaining <= 0:
+            break
+        model.minimize(expression)
+        solver = cp_model.CpSolver()
+        solver.parameters.max_time_in_seconds = max(.01, remaining / (len(stages)-index))
+        solver.parameters.num_search_workers = 4
+        solver.parameters.stop_after_first_solution = mode == 'rapido'
+        status = solver.solve(model)
+        if status not in (cp_model.OPTIMAL, cp_model.FEASIBLE):
+            if selected is not None:
+                break
+            if status == cp_model.INFEASIBLE:
+                raise ValueError('Não existe alocação integral com este estoque e estes critérios.')
+            raise ValueError('Nenhuma solução integral encontrada no tempo disponível. Aumente o tempo ou reduza o escopo; isso não comprova falta de cabo.')
+        selected = [c for c in candidates if solver.value(c[0])]
+        value = int(round(solver.objective_value))
+        results.append(dict(criterio=label, valor=value, otimo=status==cp_model.OPTIMAL))
+        if mode == 'rapido':
+            break
+        model.add(expression <= value)
+    if selected is None:
+        raise ValueError('Tempo esgotado antes da resolução. Aumente o tempo ou reduza o escopo.')
+    cuts = [make_cut(rows, reels[j]['id'], i+1) for i, (_, rows, j, _) in enumerate(selected)]
     errors = validate(project, cuts)
     if errors:
         raise ValueError('Auditoria reprovada:\n' + '\n'.join(errors[:30]))
     return dict(cortes=cuts, fingerprint=fingerprint(project),
-                status='Ótimo para os pesos configurados' if status == cp_model.OPTIMAL else 'Solução viável; ótimo não comprovado',
-                segundos=round(time.monotonic() - start_time, 2), combinacoes=len(candidates),
-                objetivo=solver.objective_value, limite=solver.best_objective_bound)
+                status='Ótimo para a ordem de prioridades operacionais' if len(results)==len(stages) and all(r['otimo'] for r in results) else 'Solução viável; prioridades não comprovadamente ótimas',
+                segundos=round(time.monotonic() - start_time, 2), combinacoes=len(candidates), etapas=results)
+
 
 
 def consolidate_existing(project):
@@ -305,5 +299,5 @@ def stock(project, cuts):
         result.append(dict(bobina=reel['id'], condutor=reel['condutor'], nominal=reel['nominal'], real=reel.get('real'),
                            base=float(base(reel)), anterior=reel.get('utilizado', 0), reservado=used[reel['id']],
                            saldo=float(remaining), classificacao='Não utilizada neste plano' if not used[reel['id']] else
-                           ('Esgotada' if remaining == 0 else 'Sobra reutilizável' if remaining >= dec(project['criterios']['sobra_minima']) else 'Sobra abaixo do limite')))
+                           operations.remainder_class(remaining, operations.settings(project))))
     return result

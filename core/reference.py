@@ -252,6 +252,7 @@ def optimize_scope(project, park=None, timeout=30):
         reserved[cut['bobina']] += engine.dec(cut['projeto'])
     local = copy.deepcopy(project)
     local['trechos'] = selected
+    local['_cortes_preservados_operacao'] = fixed
     for reel in local['bobinas']:
         reel['utilizado'] = float(engine.dec(reel.get('utilizado',0)) + reserved[reel['id']])
     result = engine.optimize(local, timeout)

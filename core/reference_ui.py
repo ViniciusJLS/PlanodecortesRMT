@@ -1,3 +1,4 @@
+from .operations_ui import render_report
 """Fluxo Excel → configuração do lançamento → prévia → cálculo."""
 import base64
 import hashlib
@@ -234,6 +235,7 @@ def render_optimization(project, park):
     plan = project.get('plano')
     if plan and plan.get('fingerprint') == engine.fingerprint(project):
         st.success(plan['status'])
+        render_report(project, plan['cortes'])
         cuts = [c for c in plan['cortes'] if c['parque']==park]
         st.dataframe(pd.DataFrame(cuts).drop(columns='trechos',errors='ignore'), hide_index=True,width='stretch')
         st.caption('As tabelas e o resumo já exibem as bobinas calculadas. Os arquivos abaixo contêm o plano validado de todos os subparques do projeto.')

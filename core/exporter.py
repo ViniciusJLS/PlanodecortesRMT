@@ -3,6 +3,7 @@
 Os valores calculados são um instantâneo do plano validado. Esta camada não
 recalcula distâncias e não usa as metragens arredondadas do controle legado.
 """
+from .operations import criteria_rows
 import io
 import re
 from collections import Counter, defaultdict
@@ -125,7 +126,7 @@ def export(project, kind):
         [['Metragem das bobinas','Real informada; na ausência, nominal × 0,97'],
          ['Distância de projeto','Soma de linear × (1 + folga) e reservas; arredondamento para cima uma vez por lançamento'],
          ['Reservas','Valores por trecho; cadastre cada reserva física uma única vez por condutor'],
-         ['Status do cálculo',plan['status']], ['Sobra mínima reutilizável [m]',project['criterios']['sobra_minima']],
+         ['Status do cálculo',plan['status']], *criteria_rows(project,plan['cortes']),
          ['Identificação dos dados',plan['fingerprint']], ['Consumo','Reserva de planejamento; não constitui baixa de execução']], [37,110])
     return workbook(sheets)
 
@@ -169,5 +170,6 @@ def export_subpark(project, park):
          ['Distância por trecho','A coluna Linear mantém o valor da referência; a metragem de corte consta em LANÇAMENTOS'],
          ['Saldo','Considera o consumo anterior e as reservas de todos os subparques desta obra'],
          ['Estruturas sem corte','Azul ou esforço 1000 em gaveta não permitem início/fim de bobina. A distância positiva do vão permanece no cálculo.'],
-         ['Dados do plano',plan['fingerprint']],['Status',plan['status']]], [35,110])]
+         ['Dados do plano',plan['fingerprint']],['Status',plan['status']], *criteria_rows(project,plan['cortes'])], [35,110])]
     return workbook(sheets)
+
