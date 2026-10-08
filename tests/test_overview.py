@@ -50,5 +50,10 @@ class Overview(unittest.TestCase):
         import pandas as pd
         spec=pie(pd.DataFrame(chart_data(self.sample())['conductors']),'Condutor','Comprimento [m]').to_dict()
         self.assertEqual(spec['mark']['type'],'arc')
-        self.assertEqual(spec['encoding']['theta']['field'],'Comprimento [m]')
+        self.assertEqual(spec['encoding']['theta']['field'],'value')
+        self.assertEqual(spec['encoding']['theta']['title'],'Comprimento [m]')
+        self.assertEqual(spec['transform'][0]['joinaggregate'][0]['field'],'value')
+        values = next(iter(spec['datasets'].values()))
+        self.assertEqual(sum(v['value'] for v in values),1000)
+        self.assertTrue(all(set(v)=={'category','value'} for v in values))
         self.assertEqual(len(spec['encoding']['tooltip']),3)
