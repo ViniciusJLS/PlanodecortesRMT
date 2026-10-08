@@ -60,35 +60,54 @@ def selection(project,park,installation,groups,key):
 
 def range_selection(project,park,installation,circuit,level,key):
     from .conductor_range import paths, interval_ids, apply_interval
-    with st.expander('Alterar condutor entre dois postes'):
-        try:
-            routes=paths(project,park,installation,None if circuit=='Todos' else circuit,None if level=='Todos' else level)
-        except ValueError as exc:
-            st.error(str(exc));return
-        if not routes:
-            st.info('Importe ou cadastre os trechos desta rede para selecionar os postes.');return
-        def label(i):
-            r=routes[i];c,n,route,block=r['scope']
-            return f"{c} · N{n} · {route} · {r['nodes'][0]} → {r['nodes'][-1]}" + (f' · bloco {block}' if block else '')
-        route_index=st.selectbox('Rota do intervalo',list(range(len(routes))),format_func=label,key=key+'_route')
-        route=routes[route_index]
-        widget=key+f'_{route_index}'
-        a,b=st.columns(2)
-        start=a.selectbox('Primeiro poste',list(range(len(route['nodes'])-1)),format_func=lambda i:f"{route['nodes'][i]} · posição {i+1}",key=widget+'_start')
-        end=b.selectbox('Último poste',list(range(start+1,len(route['nodes']))),format_func=lambda i:f"{route['nodes'][i]} · posição {i+1}",key=widget+f'_{start}_end')
-        phases=st.multiselect('Fases do intervalo',['A','B','C'],default=['A','B','C'],key=widget+'_phases')
-        description=st.selectbox('Condutor do intervalo',options(project,installation),key=widget+'_conductor')
-        st.caption('O intervalo inclui os vãos do primeiro ao último poste, seguindo o sentido da rota. O vão após o último poste fica fora da seleção. Use o poste final como início do próximo intervalo para trocar de condutor sem sobrepor os vãos.')
+    st.markdown('**Mudança de condutor**')
+    try:
+        routes=paths(project,park,installation,None if circuit=='Todos' else circuit,None if level=='Todos' else level)
+    except ValueError as exc:
+        st.error(str(exc));return
+    if not routes:
+        st.info('Cadastre os trechos para disponibilizar os postes das colunas DE e PARA.');return
+    # Exact cell values, deduplicated in the order of the registered routes.
+    posts=list(dict.fromkeys(node for route in routes for node in route['nodes']))
+    a,b,c,d=st.columns([1.2,1.2,1.6,1])
+    initial=a.selectbox('Poste inicial',[None]+posts,format_func=lambda v:v if v is not None else 'Selecione o poste',key=key+'_start')
+    final=b.selectbox('Poste final',[None]+posts,format_func=lambda v:v if v is not None else 'Selecione o poste',key=key+'_end')
+    description=c.selectbox('Condutor do intervalo',options(project,installation),key=key+'_conductor')
+    phases=['A','B','C']
+    with st.expander('Fases e prévia da mudança'):
+        phases=st.multiselect('Fases do intervalo',['A','B','C'],default=phases,key=key+'_phases')
+    matches=[]
+    if initial is not None and final is not None and initial!=final:
+        for route in routes:
+            for start,node in enumerate(route['nodes']):
+                if node!=initial:continue
+                for end in range(start+1,len(route['nodes'])):
+                    if route['nodes'][end]==final:matches.append((route,start,end))
+    ids=[]
+    selected_match=None
+    if matches:
+        if len(matches)>1:
+            def label(i):
+                route,start,end=matches[i];c,n,name,block=route['scope']
+                return f"{c} · N{n} · {name} · bloco {block or 'principal'} · posições {start+1} a {end+1}"
+            chosen=st.selectbox('Circuito, nível e rota deste intervalo',list(range(len(matches))),format_func=label,key=key+'_scope_'+str(initial)+'_'+str(final))
+        else:chosen=0
+        selected_match=matches[chosen]
+        route,start,end=selected_match
         try:
             ids=interval_ids(project,park,installation,route,start,end,phases)
-            selected=[r for r in project['trechos'] if r['id'] in set(ids)]
-            st.write(f'{end-start} vãos por fase · {len(ids)} registros serão atualizados.')
-            st.dataframe(pd.DataFrame(selected)[['fase','de','para','condutor','linear']],hide_index=True,width='stretch')
-        except ValueError as exc:
-            st.warning(str(exc));ids=[]
-        st.caption('Ao salvar, bobinas incompatíveis são liberadas e o plano anterior precisa ser recalculado. Mudanças em estruturas sem corte exigem ajustar o intervalo até um ponto permitido.')
-        if st.button('Aplicar condutor do primeiro ao último poste',type='primary',disabled=not ids,key=widget+'_apply'):
-            try:
-                candidate=apply_interval(project,park,installation,route,start,end,phases,description)
-                persist(project,candidate,f'Condutor {description} aplicado de {route["nodes"][start]} até {route["nodes"][end]}. Tabela atualizada; recalcule o plano de bobinas.')
-            except (ValueError,OSError,sqlite3.Error) as exc:st.error(str(exc))
+            st.caption(f'{end-start} vãos por fase · {len(ids)} registros. Opções de postes obtidas das células DE e PARA, respeitando os filtros da tabela.')
+            with st.expander('Trechos que receberão o novo condutor'):
+                selected=[r for r in project['trechos'] if r['id'] in set(ids)]
+                st.dataframe(pd.DataFrame(selected)[['fase','de','para','condutor','linear']],hide_index=True,width='stretch')
+        except ValueError as exc:st.warning(str(exc))
+    elif initial is not None and final is not None:
+        st.warning('Selecione postes distintos ligados por um intervalo contínuo no sentido DE → PARA da tabela.')
+    else:
+        st.caption('Escolha o poste inicial e o final nas listas das colunas DE e PARA. O vão após o poste final fica fora da mudança.')
+    if d.button('Aplicar condutor',type='primary',disabled=not ids,key=key+'_apply'):
+        try:
+            route,start,end=selected_match
+            candidate=apply_interval(project,park,installation,route,start,end,phases,description)
+            persist(project,candidate,f'Condutor {description} aplicado de {initial} até {final}. Tabela atualizada; recalcule as bobinas.')
+        except (ValueError,OSError,sqlite3.Error) as exc:st.error(str(exc))
