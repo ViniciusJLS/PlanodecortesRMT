@@ -454,19 +454,52 @@ elif page == 'Plano e entregáveis':
     c.write('')
     if c.button('Validar entradas',width='stretch'):
         show_issues(engine.input_errors(p))
-    if not p.get('criterios_confirmados'):
-        st.warning('Revise e confirme os critérios de corte antes de gerar o plano.')
     x,y = st.columns(2)
-    run = x.button('Gerar plano de corte',type='primary',disabled=not p.get('criterios_confirmados'),width='stretch')
-    original = y.button('Consolidar bobinas da planilha importada',disabled=not p.get('criterios_confirmados'),width='stretch')
+    run = x.button('Gerar plano de corte',type='primary',width='stretch')
+    original = y.button('Consolidar bobinas da planilha importada',width='stretch')
+    request_key = 'pending_calculation'
+    context = dict(obra=p['id'], fingerprint=engine.fingerprint(p),
+                   revisados=bool(p.get('criterios_confirmados')),
+                   modo=mode, segundos=int(seconds))
+    pending = st.session_state.get(request_key)
+    if pending and pending['context'] != context:
+        st.session_state.pop(request_key, None)
+        pending = None
+    action = None
     if run or original:
+        errors = engine.input_errors(p)
+        warnings = [] if p.get('criterios_confirmados') else ['Os pontos de corte, travessias, folgas e reservas ainda não foram confirmados na página Critérios de corte.']
+        if errors or warnings:
+            pending = dict(context=context, original=bool(original), errors=errors, warnings=warnings)
+            st.session_state[request_key] = pending
+        else:
+            st.session_state.pop(request_key, None)
+            pending = None
+            action = 'original' if original else 'otimizar'
+    if pending:
+        st.warning(f"{len(pending['errors']) + len(pending['warnings'])} pendência(s) identificada(s) antes do cálculo.")
+        st.dataframe(pd.DataFrame({'Pendência':pending['warnings'] + pending['errors']}),hide_index=True,width='stretch')
+        st.write('Deseja continuar e tentar gerar o plano de corte com os dados atuais?')
+        st.caption('Continuar permite calcular com a revisão pendente. A capacidade das bobinas, as metragens e as restrições de corte serão verificadas; dados inconsistentes precisam ser corrigidos para obter um plano válido.')
+        yes,no = st.columns(2)
+        if yes.button('Sim, continuar e gerar',type='primary',width='stretch'):
+            action = 'original' if pending['original'] else 'otimizar'
+            st.session_state.pop(request_key, None)
+        if no.button('Não, revisar pendências',width='stretch'):
+            st.session_state.pop(request_key, None)
+            st.rerun()
+    if action:
         try:
             with st.spinner('Calculando lançamentos e validando o balanço de material…'):
-                p['plano'] = engine.optimize(p,int(seconds),'global' if mode=='Otimização global' else 'rapido') if run else engine.consolidate_existing(p)
+                result = engine.consolidate_existing(p) if action == 'original' else engine.optimize(p,int(seconds),'global' if mode=='Otimização global' else 'rapido')
+                if not p.get('criterios_confirmados'):
+                    result['revisao_pendente'] = True
+                    result['status'] += ' — critérios ainda não revisados'
+                p['plano'] = result
                 commit(False)
             st.success(p['plano']['status'])
         except Exception as exc:
-            p['plano']=None
+            st.error('Não foi possível gerar um plano válido com os dados atuais.')
             st.error(str(exc))
     plan = p.get('plano')
     if plan and plan['fingerprint'] != engine.fingerprint(p):
@@ -481,6 +514,8 @@ elif page == 'Plano e entregáveis':
         c.metric('Consumo de projeto',fmt(sum(r['projeto'] for r in cuts))+' m')
         d.metric('Cálculo',str(plan.get('segundos',0))+' s')
         st.caption(plan['status'])
+        if plan.get('revisao_pendente'):
+            st.warning('Este plano foi calculado com revisão de critérios pendente. Confira os pontos de corte, travessias, folgas e reservas.')
         render_report(p, plan['cortes'])
         tabs = st.tabs(['Lançamentos contínuos','Resumo de bobinas','Ajuste manual','Exportação'])
         with tabs[0]:
