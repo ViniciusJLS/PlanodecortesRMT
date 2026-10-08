@@ -29,8 +29,10 @@ class TramoTests(unittest.TestCase):
         self.assertEqual((rows[0]['de'],rows[0]['para'],rows[0]['linear']),('P1','P2',10.01))
         self.assertEqual((rows[6]['de'],rows[6]['para'],rows[6]['linear']),('P3','P4',30.03))
         self.assertEqual(bounds,3)
-        # Mesmo poste na fronteira não permite consolidar dois tramos em um só lançamento.
-        self.assertEqual(len(engine.segments(rows)),6)
+        # Um zero sem vão não impõe corte quando DE/PARA mantém continuidade física.
+        chains=engine.segments(rows)
+        self.assertEqual(len(chains),3)
+        self.assertTrue(all([(r['de'],r['para']) for r in chain]==[('P1','P2'),('P2','P3'),('P3','P4')] for chain in chains))
         self.assertEqual([r['ordem'] for r in rows],[1]*3+[2]*3+[3]*3)
 
     def test_missing_previous_or_formula_and_negative_are_blocked(self):
