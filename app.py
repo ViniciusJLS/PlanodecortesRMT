@@ -8,6 +8,7 @@ import streamlit as st
 from core import engine, importer, project as projects
 from core.exporter import export
 from core.inventory import summarize, row_style
+from core.overview import render as render_overview_charts
 from core.subpark_ui import render as render_subparks
 from core.conductor_ui import render as render_conductors
 from core.initial_stock import ensure_stock, MIGRATION
@@ -147,7 +148,8 @@ elif page == 'Visão geral':
     st.caption('Do traçado ao lançamento contínuo, com rastreabilidade de cada bobina.')
     if p['nome'] == 'Parque demonstração':
         st.info('Você está no exemplo demonstrativo. Importe seu controle em “Projeto e importação” para trabalhar com dados reais.')
-    cuts = (p.get('plano') or {}).get('cortes', [])
+    plan = p.get('plano') or {}
+    cuts = plan.get('cortes', []) if plan.get('fingerprint') == engine.fingerprint(p) else []
     try:
         inv = engine.stock(p, cuts)
     except (ValueError, TypeError, ArithmeticError, KeyError):
@@ -176,6 +178,7 @@ elif page == 'Visão geral':
         if cuts:
             st.success(p['plano']['status'])
         st.caption('A metragem da rede é diferente da metragem de cabo: fases e níveis são contabilizados separadamente.')
+    render_overview_charts(p)
     st.subheader('Lançamentos do plano')
     if cuts:
         st.dataframe(pd.DataFrame(cuts).drop(columns='trechos'), hide_index=True, width='stretch')
